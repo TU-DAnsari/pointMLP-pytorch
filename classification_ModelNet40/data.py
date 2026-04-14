@@ -3,30 +3,15 @@ import glob
 import h5py
 import numpy as np
 from torch.utils.data import Dataset
+from pathlib import Path
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
-def download():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_DIR = os.path.join(BASE_DIR, 'data')
-    if not os.path.exists(DATA_DIR):
-        os.mkdir(DATA_DIR)
-    if not os.path.exists(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048')):
-        # www = 'https://shapenet.cs.stanford.edu/media/modelnet40_ply_hdf5_2048.zip'
-        # updated by Xu for new dataset link;
-        # the file is from: https://huggingface.co/datasets/Msun/modelnet40/tree/main
-        www = "https://github.com/ma-xu/pointMLP-pytorch/releases/download/Modenet40_dataset/modelnet40_ply_hdf5_2048.zip"
-        zipfile = os.path.basename(www)
-        os.system('wget %s  --no-check-certificate; unzip %s' % (www, zipfile))
-        os.system('mv %s %s' % (zipfile[:-4], DATA_DIR))
-        os.system('rm %s' % (zipfile))
+DATA_ROOT = Path(os.getenv("ML_DATA"))
 
 def load_data(partition):
-    download()
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_DIR = os.path.join(BASE_DIR, 'data')
     all_data = []
     all_label = []
-    for h5_name in glob.glob(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048', 'ply_data_%s*.h5'%partition)):
+    for h5_name in glob.glob(DATA_ROOT / 'modelnet40' / 'ply_data_%s*.h5'%partition):
         # print(f"h5_name: {h5_name}")
         f = h5py.File(h5_name,'r')
         data = f['data'][:].astype('float32')
