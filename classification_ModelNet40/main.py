@@ -28,7 +28,7 @@ def parse_args():
                         help='path to save checkpoint (default: checkpoint)')
     parser.add_argument('--msg', type=str, help='message after checkpoint')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
-    parser.add_argument('--model', default='PointNet', help='model name [default: pointnet_cls]')
+    parser.add_argument('--model', default='pointMLPElite', help='model name [default: pointnet_cls]')
     parser.add_argument('--epoch', default=300, type=int, help='number of epoch in training')
     parser.add_argument('--num_points', type=int, default=1024, help='Point Number')
     parser.add_argument('--learning_rate', default=0.1, type=float, help='learning rate in training')

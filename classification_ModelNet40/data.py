@@ -11,7 +11,7 @@ DATA_ROOT = Path(os.getenv("ML_DATA"))
 def load_data(partition):
     all_data = []
     all_label = []
-    for h5_name in glob.glob(DATA_ROOT / 'modelnet40' / 'ply_data_%s*.h5'%partition):
+    for h5_name in glob.glob(str(DATA_ROOT / 'modelnet40' / f'ply_data_{partition}*.h5')):
         # print(f"h5_name: {h5_name}")
         f = h5py.File(h5_name,'r')
         data = f['data'][:].astype('float32')
