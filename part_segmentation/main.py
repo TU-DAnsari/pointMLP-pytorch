@@ -34,8 +34,8 @@ def parse_args():
     parser.add_argument('--epochs',             type=int,   default=350)
 
     parser.add_argument('--num_points',         type=int,   default=1024)
-    parser.add_argument('--block_size',         type=int,   default=1.0)
-    parser.add_argument('--stride',             type=int,   default=0.5)
+    parser.add_argument('--block_size',         type=int,   default=2.0)
+    parser.add_argument('--stride',             type=int,   default=1.0)
     parser.add_argument('--min_points',         type=int,   default=256)
 
     parser.add_argument('--use_sgd',            type=bool,  default=False)
@@ -99,14 +99,13 @@ def weight_init(m):
 
 def train(args, io):
     device = torch.device("cuda")
+
     model = models.__dict__[args.model](n_classes, args.num_points).to(device)
+    model.apply(weight_init)
+    # model = torch.compile(model)
+    scaler = torch.amp.GradScaler("cuda")
 
     io.cprint(str(model))
-
-    model.apply(weight_init)
-    model = nn.DataParallel(model)
-
-    print("Let's use", torch.cuda.device_count(), "GPUs!")
 
     if args.resume:
         state_dict = torch.load("checkpoints/%s/best_insiou_model.pth" % args.exp_name, map_location='cpu')['model']
@@ -151,7 +150,9 @@ def train(args, io):
                               batch_size=args.test_batch_size, 
                               shuffle=False,
                               num_workers=args.workers, 
-                              drop_last=False)
+                              drop_last=False,
+                              pin_memory=True, 
+                              persistent_workers=True)
 
     if args.use_sgd:
         opt = optim.SGD(model.parameters(), lr=args.lr * 100, momentum=args.momentum, weight_decay=0)
@@ -168,7 +169,7 @@ def train(args, io):
     best_instance_iou = 0
 
     for epoch in range(args.epochs):
-        train_epoch(train_loader, model, opt, scheduler, epoch, io)
+        train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io)
         test_metrics, per_class_iou = test_epoch(val_loader, model, epoch, io)
 
         if test_metrics['accuracy'] > best_acc:
@@ -203,7 +204,7 @@ def train(args, io):
                'checkpoints/%s/model_ep%d.pth' % (args.exp_name, args.epochs))
 
 
-def train_epoch(train_loader, model, opt, scheduler, epoch, io):
+def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
     train_loss = 0.0
     count = 0.0
     accuracy = []
@@ -220,15 +221,18 @@ def train_epoch(train_loader, model, opt, scheduler, epoch, io):
         points = points.float().cuda(non_blocking=True)   # (B, 3, N)
         labels = labels.long().cuda(non_blocking=True)    # (B, N)
 
-        seg_pred = model(points)                          # (B, N, n_classes)
+        opt.zero_grad(set_to_none=True)
 
-        loss = F.nll_loss(seg_pred.contiguous().view(-1, n_classes), labels.view(-1))
+        with torch.amp.autocast("cuda"):
+            seg_pred = model(points)     
+            seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
+            loss = F.nll_loss(seg_pred_flat, labels.view(-1))
+        
+        scaler.scale(loss).backward()
+        scaler.step(opt)
+        scaler.update()
 
-        seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)
         pred_choice = seg_pred_flat.data.max(1)[1]          # (B*N,)
         correct = pred_choice.eq(labels.view(-1)).sum()
 
@@ -274,7 +278,9 @@ def test_epoch(val_loader, model, epoch, io):
             points = points.float().cuda(non_blocking=True)   # (B, 3, N)
             labels = labels.long().cuda(non_blocking=True)    # (B, N)
 
-            seg_pred = model(points)                          # (B, N, n_classes)
+            with torch.amp.autocast("cuda"):
+                seg_pred = model(points)
+                loss = F.nll_loss(seg_pred.contiguous().view(-1, n_classes), labels.view(-1))
 
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
 
@@ -290,8 +296,6 @@ def test_epoch(val_loader, model, epoch, io):
                     per_class_seen[cls] += 1
 
             batch_ious = seg_pred.new_tensor([np.sum(batch_shapeious)], dtype=torch.float64)
-
-            loss = F.nll_loss(seg_pred.contiguous().view(-1, n_classes), labels.view(-1))
             pred_flat = seg_pred.reshape(-1, n_classes).data.max(1)[1]
             correct = pred_flat.eq(labels.view(-1)).sum()
 
@@ -322,6 +326,7 @@ def test(args, io):
 
     device = torch.device("cuda")
     model = models.__dict__[args.model](n_classes).to(device)
+    model = torch.compile(model)
 
     from collections import OrderedDict
     state_dict = torch.load("checkpoints/%s/best_%s_model.pth" % (args.exp_name, args.model_type),
