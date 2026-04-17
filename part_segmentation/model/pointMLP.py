@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import einsum
 from einops import rearrange, repeat
-from pointnet2_ops import pointnet2_utils
+# from pointnet2_ops import pointnet2_utils
 
 def get_activation(activation):
     if activation.lower() == 'gelu':
@@ -156,8 +156,8 @@ class LocalGrouper(nn.Module):
         xyz = xyz.contiguous()  # xyz [btach, points, xyz]
 
         # fps_idx = torch.multinomial(torch.linspace(0, N - 1, steps=N).repeat(B, 1).to(xyz.device), num_samples=self.groups, replacement=False).long()
-        # fps_idx = farthest_point_sample(xyz, self.groups).long()
-        fps_idx = pointnet2_utils.furthest_point_sample(xyz, self.groups).long()  # [B, npoint]
+        fps_idx = farthest_point_sample(xyz, self.groups).long()
+        # fps_idx = pointnet2_utils.furthest_point_sample(xyz, self.groups).long()  # [B, npoint]
         new_xyz = index_points(xyz, fps_idx)  # [B, npoint, 3]
         new_points = index_points(points, fps_idx)  # [B, npoint, d]
 
@@ -446,6 +446,26 @@ def pointMLPElite(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
                    k_neighbors=[24, 24, 24, 24], reducers=[2, 2, 2, 2],
                    de_dims=[256, 128, 64, 64], de_blocks=[2, 2, 2, 2],
                    gmp_dim=64, **kwargs)
+
+def pointMLPEliteSmall(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
+    print("Using pointMLPELITE")
+    return PointMLP(num_classes=num_classes, 
+                    points=num_points, 
+                    embed_dim=32, 
+                    groups=1, 
+                    res_expansion=1.0,
+                    activation="relu", 
+                    bias=True, 
+                    use_xyz=True, 
+                    normalize="anchor",
+                    dim_expansion=[2, 2], 
+                    pre_blocks=[2, 1], 
+                    pos_blocks=[2, 1],
+                    k_neighbors=[24, 24], 
+                    reducers=[2, 2],
+                    de_dims=[128, 64], 
+                    de_blocks=[2, 2],
+                    gmp_dim=32, **kwargs)
 
 
 if __name__ == '__main__':

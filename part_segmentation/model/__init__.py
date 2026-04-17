@@ -1,2 +1,2 @@
 from __future__ import absolute_import
-from .pointMLP import pointMLP, pointMLPElite
+from .pointMLP import pointMLP, pointMLPElite, pointMLPEliteSmall
