@@ -222,13 +222,14 @@ def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
 
     log_counter = 0
 
-    for points, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for points, labels, normals, _ in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         # points: (B, 3, N) — already in correct format from dataset
         # labels: (B, N)
         batch_size, _, num_point = points.size()
 
-        points = points.float().cuda(non_blocking=True)   # (B, 3, N)
-        labels = labels.long().cuda(non_blocking=True)    # (B, N)
+        points = points.cuda(non_blocking=True)   # (B, 3, N)
+        labels = labels.cuda(non_blocking=True)    # (B, N)
+        normals = normals.cuda(non_blocking=True)  # (B, 3, N)
 
         opt.zero_grad(set_to_none=True)
 
@@ -287,11 +288,12 @@ def test_epoch(val_loader, model, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points, labels, normals, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, _, num_point = points.size()
 
-            points = points.float().cuda(non_blocking=True)   # (B, 3, N)
-            labels = labels.long().cuda(non_blocking=True)    # (B, N)
+            points = points.cuda(non_blocking=True)   # (B, 3, N)
+            labels = labels.cuda(non_blocking=True)    # (B, N)
+            normals = normals.cuda(non_blocking=True)  # (B, 3, N)
 
             # with torch.amp.autocast("cuda"):
             seg_pred = model(points)
@@ -361,10 +363,12 @@ def test(args, io):
     per_class_seen = np.zeros(n_classes, dtype=np.int32)
 
     with torch.no_grad():
-        for points, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points, labels, normals, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, _, num_point = points.size()
-            points = points.float().cuda(non_blocking=True)
-            labels = labels.long().cuda(non_blocking=True)
+
+            points = points.cuda(non_blocking=True)   # (B, 3, N)
+            labels = labels.cuda(non_blocking=True)    # (B, N)
+            normals = normals.cuda(non_blocking=True)  # (B, 3, N)
 
             seg_pred = model(points)
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)

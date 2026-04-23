@@ -22,6 +22,8 @@ class ARKitScenesDataset(Dataset):
             if scene_id is not None:
                 scene_ids = [scene_id]
 
+            k = 0
+
             for scene_id in tqdm(scene_ids, desc=f"pre-processing {split} split"):
                 points = np.asarray(f[split][scene_id]["points"], dtype=np.float32)
                 normals = np.asarray(f[split][scene_id]["normals"], dtype=np.float32)
@@ -37,12 +39,16 @@ class ARKitScenesDataset(Dataset):
                                                                             normalize=True)
                 point_blocks.append(point_blocks_scene)
                 for i, data in enumerate(data_blocks_scene):
-                    if i >= len(self.data_blocks):
+                    if i >= len(data_blocks):
                         data_blocks.append([])
                     data_blocks[i].append(data)
+
+                if k == 10:
+                    break
+                k += 1
         
-        self.point_blocks = np.concatenate(self.point_blocks, axis=0)  # (total_blocks, num_points, 3)
-        self.data_blocks = [np.concatenate(data_list, axis=0) for data_list in self.data_blocks]  # (total_blocks, num_points)
+        self.point_blocks = np.concatenate(point_blocks, axis=0)  # (total_blocks, num_points, 3)
+        self.data_blocks = [np.concatenate(data_list, axis=0) for data_list in data_blocks]  # (total_blocks, num_points)
 
     @staticmethod
     def data_to_blocks(points, point_data, num_points, block_size, stride, min_points, normalize=True):
