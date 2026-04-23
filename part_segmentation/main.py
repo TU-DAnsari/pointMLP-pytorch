@@ -1,4 +1,5 @@
 from __future__ import print_function
+from ast import arg
 import os
 import argparse
 import torch
@@ -21,13 +22,13 @@ import datetime
 
 n_classes = 2
 labels_classes = ['no_object', 'object']
-ARKITSCENES_PATH = Path("/home/danish/lobster/ml_data/ARKitScenes/arkitscenes.h5")
+ARKITSCENES_PATH = Path("/home/danish/lobster/ml_data/ARKitScenes/arkitscenes_small.h5")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='ARKitScenes Scene Segmentation')
     parser.add_argument('--model',              type=str,   default='pointMLP')
-    parser.add_argument('--exp_name',           type=str,   default="")
+    parser.add_argument('--exp_name',           type=str,   default=None)
 
     parser.add_argument('--batch_size',         type=int,   default=48)
     parser.add_argument('--test_batch_size',    type=int,   default=32)
@@ -55,7 +56,9 @@ def main():
 
     assert torch.cuda.is_available(), "Please ensure codes are executed in cuda."
 
-    args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
+    if args.exp_name is None:
+        args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
+        
     _init_(args=args)
 
     log_name = 'checkpoints/%s/%s_%s.log' % (args.exp_name, args.model, 'test' if args.eval else 'train')
@@ -102,27 +105,33 @@ def train(args, io):
 
     model = models.__dict__[args.model](n_classes, args.num_points).to(device)
     model.apply(weight_init)
-    # model = torch.compile(model)
-    scaler = torch.amp.GradScaler("cuda")
+
+
+    scaler = torch.amp.GradScaler("cuda") #UNUSED
 
     io.cprint(str(model))
 
     if args.resume:
-        state_dict = torch.load("checkpoints/%s/best_insiou_model.pth" % args.exp_name, map_location='cpu')['model']
-        for k in state_dict.keys():
-            if 'module' not in k:
-                from collections import OrderedDict
-                new_state_dict = OrderedDict()
-                for k in state_dict:
-                    new_state_dict['module.' + k] = state_dict[k]
-                state_dict = new_state_dict
-            break
+        state_dict = torch.load(f"checkpoints/{args.exp_name}/best_insiou_model.pth", weights_only=False, map_location='cpu')['model']
+        state_dict = {
+            k.replace("module.", "", 1).replace("_orig_mod.", "", 1): v
+            for k, v in state_dict.items()
+        }
+        # for k in state_dict.keys():
+        #     if 'module' not in k:
+        #         from collections import OrderedDict
+        #         new_state_dict = OrderedDict()
+        #         for k in state_dict:
+        #             new_state_dict['module.' + k] = state_dict[k]
+        #         state_dict = new_state_dict
+        #     break
         model.load_state_dict(state_dict)
         print("Resuming training...")
     else:
         print("Training from scratch...")
 
-
+    # model = torch.compile(model)
+    
     train_data = ARKitScenesDataset(ARKITSCENES_PATH, split='train', 
                                     num_points=args.num_points,
                                     block_size=args.block_size, 
@@ -223,30 +232,35 @@ def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
 
         opt.zero_grad(set_to_none=True)
 
-        with torch.amp.autocast("cuda"):
-            seg_pred = model(points)     
-            seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
+        # with torch.amp.autocast("cuda"):
 
-            loss = F.nll_loss(seg_pred_flat, labels.view(-1))
-        
-        scaler.scale(loss).backward()
-        scaler.step(opt)
-        scaler.update()
+        seg_pred = model(points)     
+        seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
+
+        loss = F.nll_loss(seg_pred_flat, labels.view(-1))
+        loss = torch.mean(loss)
+
+        loss.backward()
+        opt.step()
+
+        # scaler.scale(loss).backward()
+        # scaler.step(opt)
+        # scaler.update()
 
         pred_choice = seg_pred_flat.data.max(1)[1]          # (B*N,)
         correct = pred_choice.eq(labels.view(-1)).sum()
 
         count += batch_size
 
-        if log_counter % 100 == 0:
-            batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
-            batch_shapeious = seg_pred.new_tensor([np.sum(batch_shapeious)], dtype=torch.float64)
+        # if log_counter % 100 == 0:
+        batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
+        batch_shapeious = seg_pred.new_tensor([np.sum(batch_shapeious)], dtype=torch.float64)
 
-            shape_ious += batch_shapeious.item()
-            train_loss += loss.item() * batch_size
-            accuracy.append(correct.item() / (batch_size * num_point))
+        shape_ious += batch_shapeious.item()
+        train_loss += loss.item() * batch_size
+        accuracy.append(correct.item() / (batch_size * num_point))
 
-        log_counter += 1
+        # log_counter += 1
 
     if args.scheduler == 'cos':
         scheduler.step()
@@ -269,6 +283,7 @@ def test_epoch(val_loader, model, epoch, io):
     shape_ious = 0.0
     per_class_iou  = np.zeros(n_classes, dtype=np.float32)
     per_class_seen = np.zeros(n_classes, dtype=np.int32)
+    metrics = defaultdict(lambda: list())
     model.eval()
 
     with torch.no_grad():
@@ -278,10 +293,8 @@ def test_epoch(val_loader, model, epoch, io):
             points = points.float().cuda(non_blocking=True)   # (B, 3, N)
             labels = labels.long().cuda(non_blocking=True)    # (B, N)
 
-            with torch.amp.autocast("cuda"):
-                seg_pred = model(points)
-                loss = F.nll_loss(seg_pred.contiguous().view(-1, n_classes), labels.view(-1))
-
+            # with torch.amp.autocast("cuda"):
+            seg_pred = model(points)
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
 
             # per-class iou
@@ -296,9 +309,13 @@ def test_epoch(val_loader, model, epoch, io):
                     per_class_seen[cls] += 1
 
             batch_ious = seg_pred.new_tensor([np.sum(batch_shapeious)], dtype=torch.float64)
-            pred_flat = seg_pred.reshape(-1, n_classes).data.max(1)[1]
-            correct = pred_flat.eq(labels.view(-1)).sum()
+            seg_pred = seg_pred.contiguous().view(-1, n_classes)
+            loss = F.nll_loss(seg_pred.contiguous().view(-1, n_classes), labels.view(-1))
 
+            pred_choice = seg_pred.data.max(1)[1]  # b*n
+            correct = pred_choice.eq(labels.data.view(-1)).sum()
+
+            loss = torch.mean(loss)
             shape_ious  += batch_ious.item()
             count       += batch_size
             test_loss   += loss.item() * batch_size
@@ -326,7 +343,8 @@ def test(args, io):
 
     device = torch.device("cuda")
     model = models.__dict__[args.model](n_classes).to(device)
-    model = torch.compile(model)
+
+    # model = torch.compile(model)
 
     from collections import OrderedDict
     state_dict = torch.load("checkpoints/%s/best_%s_model.pth" % (args.exp_name, args.model_type),

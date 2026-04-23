@@ -21,6 +21,7 @@ class ARKitScenesDataset(Dataset):
             scene_ids = list(f[split].keys())
             if scene_id is not None:
                 scene_ids = [scene_id]
+
             for scene_id in tqdm(scene_ids, desc=f"pre-processing {split} split"):
                 points = np.asarray(f[split][scene_id]["points"], dtype=np.float32)
                 normals = np.asarray(f[split][scene_id]["normals"], dtype=np.float32)
