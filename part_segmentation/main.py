@@ -117,18 +117,13 @@ def train(args, io):
             k.replace("module.", "", 1).replace("_orig_mod.", "", 1): v
             for k, v in state_dict.items()
         }
-        # for k in state_dict.keys():
-        #     if 'module' not in k:
-        #         from collections import OrderedDict
-        #         new_state_dict = OrderedDict()
-        #         for k in state_dict:
-        #             new_state_dict['module.' + k] = state_dict[k]
-        #         state_dict = new_state_dict
-        #     break
         model.load_state_dict(state_dict)
         print("Resuming training...")
     else:
         print("Training from scratch...")
+
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters: {trainable_params}")
 
     # model = torch.compile(model)
     
@@ -235,7 +230,7 @@ def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
 
         # with torch.amp.autocast("cuda"):
 
-        seg_pred = model(points)     
+        seg_pred = model(points, normals)     
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
         loss = F.nll_loss(seg_pred_flat, labels.view(-1))
@@ -296,7 +291,7 @@ def test_epoch(val_loader, model, epoch, io):
             normals = normals.cuda(non_blocking=True)  # (B, 3, N)
 
             # with torch.amp.autocast("cuda"):
-            seg_pred = model(points)
+            seg_pred = model(points, normals)
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
 
             # per-class iou
@@ -370,7 +365,7 @@ def test(args, io):
             labels = labels.cuda(non_blocking=True)    # (B, N)
             normals = normals.cuda(non_blocking=True)  # (B, 3, N)
 
-            seg_pred = model(points)
+            seg_pred = model(points, normals)
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
             shape_ious += batch_shapeious
 

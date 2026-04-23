@@ -338,7 +338,7 @@ class PointMLP(nn.Module):
         self.stages = len(pre_blocks)
         self.class_num = num_classes
         self.points = points
-        self.embedding = ConvBNReLU1D(3, embed_dim, bias=bias, activation=activation)  # 3 not 6, no normals
+        self.embedding = ConvBNReLU1D(6, embed_dim, bias=bias, activation=activation)
         assert len(pre_blocks) == len(k_neighbors) == len(reducers) == len(pos_blocks) == len(dim_expansion)
 
         self.local_grouper_list = nn.ModuleList()
@@ -394,9 +394,10 @@ class PointMLP(nn.Module):
         )
         self.en_dims = en_dims
 
-    def forward(self, x):
+    def forward(self, x, normals):
         # x: (B, 3, N)
         xyz = x.permute(0, 2, 1)       # (B, N, 3)
+        x = torch.cat([x, normals], dim=1)
         x = self.embedding(x)          # (B, embed_dim, N)
 
         xyz_list = [xyz]
@@ -436,16 +437,7 @@ def pointMLP(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
                     de_dims=[512, 256, 128, 128], de_blocks=[4, 4, 4, 4],
                     gmp_dim=64, **kwargs)
 
-
-def pointMLPElite(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
-    return PointMLP(num_classes=num_classes, points=num_points, embed_dim=64, groups=1, res_expansion=1.0,
-                    activation="relu", bias=True, use_xyz=True, normalize="anchor",
-                   dim_expansion=[2, 2, 2, 1], pre_blocks=[1, 1, 2, 1], pos_blocks=[1, 1, 2, 1],
-                   k_neighbors=[24, 24, 24, 24], reducers=[2, 2, 2, 2],
-                   de_dims=[256, 128, 64, 64], de_blocks=[2, 2, 2, 2],
-                   gmp_dim=64, **kwargs)
-
-def pointMLPEliteSmall(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
+def pointMLPSmall(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
     return PointMLP(num_classes=num_classes, 
                     points=num_points, 
                     embed_dim=32, 
@@ -456,10 +448,10 @@ def pointMLPEliteSmall(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
                     use_xyz=True, 
                     normalize="anchor",
                     dim_expansion=[2, 2], 
-                    pre_blocks=[2, 1], 
-                    pos_blocks=[2, 1],
+                    pre_blocks=[2, 2], 
+                    pos_blocks=[2, 2],
                     k_neighbors=[24, 24], 
-                    reducers=[2, 2],
+                    reducers=[4, 4],
                     de_dims=[128, 64], 
                     de_blocks=[2, 2],
                     gmp_dim=32, **kwargs)
