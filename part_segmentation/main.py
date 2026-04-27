@@ -5,7 +5,7 @@ import argparse
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
-from util.dataset import ARKitScenesDataset
+from util.arkitscenes_dataset import ARKitScenesDataset
 import torch.nn.functional as F
 import torch.nn as nn
 import model as models
@@ -35,9 +35,23 @@ def parse_args():
     parser.add_argument('--epochs',             type=int,   default=350)
 
     parser.add_argument('--num_points',         type=int,   default=1024)
-    parser.add_argument('--block_size',         type=int,   default=2.0)
-    parser.add_argument('--stride',             type=int,   default=1.0)
-    parser.add_argument('--min_points',         type=int,   default=256)
+    parser.add_argument('--block_size',         type=int,   default=1.0)
+    parser.add_argument('--stride',             type=int,   default=0.5)
+    parser.add_argument('--min_points',         type=int,   default=64)
+
+    parser.add_argument('--pose_noise',         type=bool,  default=False)
+    parser.add_argument('--n_duplication',      type=int,   default=3)
+    parser.add_argument('--pose_noise_range',   type=float, default=0.1)
+
+    parser.add_argument('--sensor_noise',       type=bool,  default=1024)
+    parser.add_argument('--sensor_noise_std',   type=float, default=0.1)
+
+    parser.add_argument('--voxelize',           type=bool,  default=False)
+    parser.add_argument('--voxel_size',         type=float, default=0.1)
+
+    parser.add_argument('--normal_radius',      type=float, default=0.1)
+
+    parser.add_argument('--normalize',          type=bool,  default=True)
 
     parser.add_argument('--use_sgd',            type=bool,  default=False)
     parser.add_argument('--scheduler',          type=str,   default='step')
@@ -129,15 +143,35 @@ def train(args, io):
     
     train_data = ARKitScenesDataset(ARKITSCENES_PATH, split='train', 
                                     num_points=args.num_points,
-                                    block_size=args.block_size, 
-                                    stride=args.stride, 
-                                    min_points=args.min_points)
+                                    block_size=args.block_size,
+                                    stride=args.stride,
+                                    min_points=args.min_points,
+                                    pose_noise=args.pose_noise,
+                                    n_duplication=args.n_duplication,
+                                    pose_noise_range=args.pose_noise_range,
+                                    sensor_noise=args.sensor_noise,
+                                    sensor_noise_std=args.sensor_noise_std,
+                                    voxelize=args.voxelize,
+                                    voxel_size=args.voxel_size,
+                                    normal_radius=args.normal_radius,
+                                    normalize=args.normalize
+                                    )
     
-    val_data   = ARKitScenesDataset(ARKITSCENES_PATH, split='val', 
+    val_data = ARKitScenesDataset(ARKITSCENES_PATH, split='val', 
                                     num_points=args.num_points,
-                                    block_size=args.block_size, 
-                                    stride=args.stride, 
-                                    min_points=args.min_points)
+                                    block_size=args.block_size,
+                                    stride=args.stride,
+                                    min_points=args.min_points,
+                                    pose_noise=args.pose_noise,
+                                    n_duplication=args.n_duplication,
+                                    pose_noise_range=args.pose_noise_range,
+                                    sensor_noise=args.sensor_noise,
+                                    sensor_noise_std=args.sensor_noise_std,
+                                    voxelize=args.voxelize,
+                                    voxel_size=args.voxel_size,
+                                    normal_radius=args.normal_radius,
+                                    normalize=args.normalize
+                                    )
 
     print("Training samples: %d" % len(train_data))
     print("Validation samples: %d" % len(val_data))
@@ -217,14 +251,18 @@ def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
 
     log_counter = 0
 
-    for points, labels, normals, _ in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for points, normals, point_data in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         # points: (B, 3, N) — already in correct format from dataset
         # labels: (B, N)
         batch_size, _, num_point = points.size()
 
+        points = points.float().permute(0, 2, 1)
+        normals = normals.float().permute(0, 2, 1)
+        labels = point_data[0].long()
+
         points = points.cuda(non_blocking=True)   # (B, 3, N)
-        labels = labels.cuda(non_blocking=True)    # (B, N)
         normals = normals.cuda(non_blocking=True)  # (B, 3, N)
+        labels = labels.cuda(non_blocking=True)    # (B, N)
 
         opt.zero_grad(set_to_none=True)
 
@@ -283,12 +321,16 @@ def test_epoch(val_loader, model, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points, labels, normals, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points, normals, point_data in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, _, num_point = points.size()
 
+            points = points.float().permute(0, 2, 1)
+            normals = normals.float().permute(0, 2, 1)
+            labels = point_data[0].long()
+
             points = points.cuda(non_blocking=True)   # (B, 3, N)
-            labels = labels.cuda(non_blocking=True)    # (B, N)
             normals = normals.cuda(non_blocking=True)  # (B, 3, N)
+            labels = labels.cuda(non_blocking=True)    # (B, N)
 
             # with torch.amp.autocast("cuda"):
             seg_pred = model(points, normals)
@@ -358,12 +400,16 @@ def test(args, io):
     per_class_seen = np.zeros(n_classes, dtype=np.int32)
 
     with torch.no_grad():
-        for points, labels, normals, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points, normals, point_data in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, _, num_point = points.size()
 
+            points = points.float().permute(0, 2, 1)
+            normals = normals.float().permute(0, 2, 1)
+            labels = point_data[0].long()
+
             points = points.cuda(non_blocking=True)   # (B, 3, N)
-            labels = labels.cuda(non_blocking=True)    # (B, N)
             normals = normals.cuda(non_blocking=True)  # (B, 3, N)
+            labels = labels.cuda(non_blocking=True)    # (B, N)
 
             seg_pred = model(points, normals)
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
