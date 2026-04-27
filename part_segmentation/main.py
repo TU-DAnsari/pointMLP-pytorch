@@ -21,7 +21,7 @@ import datetime
 
 
 n_classes = 2
-labels_classes = ['no_object', 'object']
+labels_classes = ['environment', 'object']
 ARKITSCENES_PATH = Path("/home/danish/lobster/ml_data/ARKitScenes/arkitscenes_small.h5")
 
 
@@ -254,7 +254,7 @@ def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
     for points, normals, point_data in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         # points: (B, 3, N) — already in correct format from dataset
         # labels: (B, N)
-        batch_size, _, num_point = points.size()
+        batch_size, num_point, _ = points.size()
 
         points = points.float().permute(0, 2, 1)
         normals = normals.float().permute(0, 2, 1)
@@ -322,7 +322,7 @@ def test_epoch(val_loader, model, epoch, io):
 
     with torch.no_grad():
         for points, normals, point_data in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
-            batch_size, _, num_point = points.size()
+            batch_size, num_point, _ = points.size()
 
             points = points.float().permute(0, 2, 1)
             normals = normals.float().permute(0, 2, 1)
@@ -375,10 +375,29 @@ def test_epoch(val_loader, model, epoch, io):
 
 
 def test(args, io):
-    val_data = ARKitScenesDataset(ARKITSCENES_PATH, split='val', num_points=args.num_points,
-                                    block_size=1.0, stride=1.0, min_points=512)
-    val_loader = DataLoader(val_data, batch_size=args.test_batch_size, shuffle=False,
-                            num_workers=args.workers, drop_last=False)
+    val_data = ARKitScenesDataset(ARKITSCENES_PATH, split='val', 
+                                num_points=args.num_points,
+                                block_size=args.block_size,
+                                stride=args.stride,
+                                min_points=args.min_points,
+                                pose_noise=args.pose_noise,
+                                n_duplication=args.n_duplication,
+                                pose_noise_range=args.pose_noise_range,
+                                sensor_noise=args.sensor_noise,
+                                sensor_noise_std=args.sensor_noise_std,
+                                voxelize=args.voxelize,
+                                voxel_size=args.voxel_size,
+                                normal_radius=args.normal_radius,
+                                normalize=args.normalize
+                                )
+    
+    val_loader = DataLoader(val_data, 
+                              batch_size=args.test_batch_size, 
+                              shuffle=False,
+                              num_workers=args.workers, 
+                              drop_last=False,
+                              pin_memory=True, 
+                              persistent_workers=True)
 
     device = torch.device("cuda")
     model = models.__dict__[args.model](n_classes).to(device)
@@ -401,7 +420,7 @@ def test(args, io):
 
     with torch.no_grad():
         for points, normals, point_data in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
-            batch_size, _, num_point = points.size()
+            batch_size, num_point, _ = points.size()
 
             points = points.float().permute(0, 2, 1)
             normals = normals.float().permute(0, 2, 1)
