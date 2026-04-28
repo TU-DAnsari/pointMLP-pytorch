@@ -1,7 +1,35 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+import yaml
+from types import SimpleNamespace
+import argparse
 
+def parse_args():
+    # Step 1: get the config file path (and any CLI overrides)
+    parser = argparse.ArgumentParser(description='ARKitScenes Scene Segmentation')
+    parser.add_argument('--config', type=str, default='cfg/config.yaml',
+                        help='Path to YAML config file')
+    
+    # Optional: allow any key to be overridden from the CLI
+    args, overrides = parser.parse_known_args()
+
+    # Step 2: load the YAML config
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Step 3: apply CLI overrides (e.g. --lr 0.001 --epochs 100)
+    override_parser = argparse.ArgumentParser()
+    for key, val in config.items():
+        override_parser.add_argument(f'--{key}', type=type(val) if val is not None else str)
+    override_args = override_parser.parse_args(overrides)
+
+    for key, val in vars(override_args).items():
+        if val is not None:
+            config[key] = val
+
+    config['config'] = args.config  # preserve the config path
+    return SimpleNamespace(**config)
 
 def cal_loss(pred, gold, smoothing=True):
     ''' Calculate cross entropy loss, apply label smoothing if needed. '''
@@ -67,3 +95,13 @@ def compute_overall_iou(pred, target, num_classes):
                 part_ious.append(iou)   #  append the iou of this class
         shape_ious.append(np.mean(part_ious))   # each time append an average iou across all classes of this sample (sample_level!)
     return shape_ious   # [batch_size]
+
+def compute_class_weights(labels, n_classes, device):
+    class_counts = np.zeros(n_classes)
+    for cls in range(n_classes):
+        class_counts[cls] += np.sum(labels == cls)
+    
+    # inverse frequency weighting
+    weights = 1.0 / (class_counts + 1e-6)
+    weights = weights / weights.sum() * n_classes  # normalize
+    return torch.tensor(weights, dtype=torch.float32).to(device)

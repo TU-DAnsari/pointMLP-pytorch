@@ -18,6 +18,8 @@ from torch.autograd import Variable
 import random
 from pathlib import Path
 import datetime
+from util.util import parse_args, compute_class_weights
+import shutil
 
 
 n_classes = 2
@@ -25,49 +27,49 @@ labels_classes = ['environment', 'object']
 ARKITSCENES_PATH = Path("/home/danish/lobster/ml_data/ARKitScenes/arkitscenes_small.h5")
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='ARKitScenes Scene Segmentation')
-    parser.add_argument('--model',              type=str,   default='pointMLP')
-    parser.add_argument('--exp_name',           type=str,   default=None)
+# def parse_args():
+#     parser = argparse.ArgumentParser(description='ARKitScenes Scene Segmentation')
+#     parser.add_argument('--model',              type=str,   default='pointMLP')
+#     parser.add_argument('--exp_name',           type=str,   default=None)
 
-    parser.add_argument('--batch_size',         type=int,   default=48)
-    parser.add_argument('--test_batch_size',    type=int,   default=32)
-    parser.add_argument('--epochs',             type=int,   default=350)
+#     parser.add_argument('--batch_size',         type=int,   default=48)
+#     parser.add_argument('--test_batch_size',    type=int,   default=32)
+#     parser.add_argument('--epochs',             type=int,   default=350)
 
-    parser.add_argument('--num_points',         type=int,   default=1024)
-    parser.add_argument('--block_size',         type=int,   default=1.0)
-    parser.add_argument('--stride',             type=int,   default=0.5)
-    parser.add_argument('--min_points',         type=int,   default=64)
+#     parser.add_argument('--num_points',         type=int,   default=1024)
+#     parser.add_argument('--block_size',         type=int,   default=1.0)
+#     parser.add_argument('--stride',             type=int,   default=0.5)
+#     parser.add_argument('--min_points',         type=int,   default=64)
 
-    parser.add_argument('--pose_noise',         type=bool,  default=False)
-    parser.add_argument('--n_duplication',      type=int,   default=3)
-    parser.add_argument('--pose_noise_range',   type=float, default=0.1)
+#     parser.add_argument('--pose_noise',         type=bool,  default=False)
+#     parser.add_argument('--n_duplication',      type=int,   default=3)
+#     parser.add_argument('--pose_noise_range',   type=float, default=0.1)
 
-    parser.add_argument('--sensor_noise',       type=bool,  default=1024)
-    parser.add_argument('--sensor_noise_std',   type=float, default=0.1)
+#     parser.add_argument('--sensor_noise',       type=bool,  default=False)
+#     parser.add_argument('--sensor_noise_std',   type=float, default=0.1)
 
-    parser.add_argument('--voxelize',           type=bool,  default=False)
-    parser.add_argument('--voxel_size',         type=float, default=0.1)
+#     parser.add_argument('--voxelize',           type=bool,  default=False)
+#     parser.add_argument('--voxel_size',         type=float, default=0.1)
 
-    parser.add_argument('--normal_radius',      type=float, default=0.1)
+#     parser.add_argument('--normal_radius',      type=float, default=0.1)
 
-    parser.add_argument('--normalize',          type=bool,  default=True)
+#     parser.add_argument('--normalize',          type=bool,  default=True)
 
-    parser.add_argument('--use_sgd',            type=bool,  default=False)
-    parser.add_argument('--scheduler',          type=str,   default='step')
-    parser.add_argument('--step',               type=int,   default=40)
-    parser.add_argument('--lr',                 type=float, default=0.003)
-    parser.add_argument('--momentum',           type=float, default=0.9)
-    parser.add_argument('--manual_seed',        type=int,   default=None)
-    parser.add_argument('--eval',               type=bool,  default=False)
-    parser.add_argument('--workers',            type=int,   default=12)
-    parser.add_argument('--resume',             type=bool,  default=False)
-    parser.add_argument('--model_type',         type=str,   default='insiou')
-    return parser.parse_args()
+#     parser.add_argument('--use_sgd',            type=bool,  default=False)
+#     parser.add_argument('--scheduler',          type=str,   default='step')
+#     parser.add_argument('--step',               type=int,   default=40)
+#     parser.add_argument('--lr',                 type=float, default=0.003)
+#     parser.add_argument('--momentum',           type=float, default=0.9)
+#     parser.add_argument('--manual_seed',        type=int,   default=None)
+#     parser.add_argument('--eval',               type=bool,  default=False)
+#     parser.add_argument('--workers',            type=int,   default=12)
+#     parser.add_argument('--resume',             type=bool,  default=False)
+#     parser.add_argument('--model_type',         type=str,   default='insiou')
+#     return parser.parse_args()
+
 
 def main():    
     args = parse_args()
-
     assert torch.cuda.is_available(), "Please ensure codes are executed in cuda."
 
     if args.exp_name is None:
@@ -75,7 +77,12 @@ def main():
         
     _init_(args=args)
 
-    log_name = 'checkpoints/%s/%s_%s.log' % (args.exp_name, args.model, 'test' if args.eval else 'train')
+    checkpoint_dir = 'checkpoints/%s' % args.exp_name
+    config_save_path = os.path.join(checkpoint_dir, 'config.yaml')
+    if not args.eval:
+        shutil.copy(args.config, config_save_path)
+
+    log_name = checkpoint_dir + '/%s_%s.log' % (args.model, 'test' if args.eval else 'train')
     io = IOStream(log_name)
     io.cprint(str(args))
 
@@ -120,8 +127,7 @@ def train(args, io):
     model = models.__dict__[args.model](n_classes, args.num_points).to(device)
     model.apply(weight_init)
 
-
-    scaler = torch.amp.GradScaler("cuda") #UNUSED
+    # scaler = torch.amp.GradScaler("cuda") #UNUSED
 
     io.cprint(str(model))
 
@@ -206,19 +212,28 @@ def train(args, io):
     best_class_iou = 0
     best_instance_iou = 0
 
+    labels = []
+
+    for _, _, point_data in train_loader:
+        batch_labels = point_data[0].numpy().flatten()
+        labels.append(batch_labels)
+
+    class_weights = compute_class_weights(np.array(labels).reshape(-1), n_classes, device)
+    
     for epoch in range(args.epochs):
-        train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io)
-        test_metrics, per_class_iou = test_epoch(val_loader, model, epoch, io)
+        train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io)
+        test_metrics, per_class_iou = test_epoch(val_loader, model, class_weights, epoch, io)
 
         if test_metrics['accuracy'] > best_acc:
+
             best_acc = test_metrics['accuracy']
             io.cprint('Max Acc: %.5f' % best_acc)
             torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'test_acc': best_acc},
                        'checkpoints/%s/best_acc_model.pth' % args.exp_name)
 
-        if test_metrics['shape_avg_iou'] > best_instance_iou:
-            best_instance_iou = test_metrics['shape_avg_iou']
+        if test_metrics['avg_iou'] > best_instance_iou:
+            best_instance_iou = test_metrics['avg_iou']
             io.cprint('Max instance iou: %.5f' % best_instance_iou)
             torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'test_instance_iou': best_instance_iou},
@@ -242,7 +257,7 @@ def train(args, io):
                'checkpoints/%s/model_ep%d.pth' % (args.exp_name, args.epochs))
 
 
-def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
+def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io):
     train_loss = 0.0
     count = 0.0
     accuracy = []
@@ -271,7 +286,7 @@ def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
         seg_pred = model(points, normals)     
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
-        loss = F.nll_loss(seg_pred_flat, labels.view(-1))
+        loss = F.nll_loss(seg_pred_flat, labels.view(-1), class_weights)
         loss = torch.mean(loss)
 
         loss.backward()
@@ -310,7 +325,7 @@ def train_epoch(args, scaler, train_loader, model, opt, scheduler, epoch, io):
         opt.param_groups[0]['lr']))
 
 
-def test_epoch(val_loader, model, epoch, io):
+def test_epoch(val_loader, model, class_weights, epoch, io):
     test_loss = 0.0
     count = 0.0
     accuracy = []
@@ -349,7 +364,7 @@ def test_epoch(val_loader, model, epoch, io):
 
             batch_ious = seg_pred.new_tensor([np.sum(batch_shapeious)], dtype=torch.float64)
             seg_pred = seg_pred.contiguous().view(-1, n_classes)
-            loss = F.nll_loss(seg_pred.contiguous().view(-1, n_classes), labels.view(-1))
+            loss = F.nll_loss(seg_pred.contiguous().view(-1, n_classes), labels.view(-1), class_weights)
 
             pred_choice = seg_pred.data.max(1)[1]  # b*n
             correct = pred_choice.eq(labels.data.view(-1)).sum()
@@ -366,10 +381,13 @@ def test_epoch(val_loader, model, epoch, io):
 
     metrics = {
         'accuracy':      np.mean(accuracy),
-        'shape_avg_iou': shape_ious / count,
+        'avg_iou': shape_ious / count,
     }
-    io.cprint('Test %d, loss: %.5f, acc: %.5f, ins_iou: %.5f' % (
-        epoch + 1, test_loss / count, metrics['accuracy'], metrics['shape_avg_iou']))
+
+    io.cprint(
+        f"Test {epoch+1}, loss: {test_loss/count:.5f}, acc: {metrics['accuracy']:.5f}, ins_iou: {metrics['avg_iou']:.5f}, " +
+        ", ".join(f"{labels_classes[i]} iou: {per_class_iou[i]:.5f}" for i in range(n_classes))
+    )
 
     return metrics, per_class_iou
 
