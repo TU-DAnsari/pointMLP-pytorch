@@ -6,6 +6,7 @@ import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from util.arkitscenes_dataset import ARKitScenesDataset
+from util.brspcd_dataset import BrSPCDDataset
 import torch.nn.functional as F
 import torch.nn as nn
 import model as models
@@ -24,7 +25,8 @@ import shutil
 
 n_classes = 2
 labels_classes = ['environment', 'object']
-ARKITSCENES_PATH = Path("/home/danish/lobster/ml_data/ARKitScenes/arkitscenes_small.h5")
+DATA_PATH = Path("/home/danish/lobster/ml_data/ARKitScenes/arkitscenes_small.h5")
+DATASET_CLASS = BrSPCDDataset
 
 
 # def parse_args():
@@ -81,6 +83,9 @@ def main():
     config_save_path = os.path.join(checkpoint_dir, 'config.yaml')
     if not args.eval:
         shutil.copy(args.config, config_save_path)
+
+        with open(config_save_path, 'a') as f:
+            f.write(f"\nDATA_PATH: {DATA_PATH}\n")
 
     log_name = checkpoint_dir + '/%s_%s.log' % (args.model, 'test' if args.eval else 'train')
     io = IOStream(log_name)
@@ -147,7 +152,7 @@ def train(args, io):
 
     # model = torch.compile(model)
     
-    train_data = ARKitScenesDataset(ARKITSCENES_PATH, split='train', 
+    train_data = DATASET_CLASS(DATA_PATH, split='train', 
                                     num_points=args.num_points,
                                     block_size=args.block_size,
                                     stride=args.stride,
@@ -163,7 +168,7 @@ def train(args, io):
                                     normalize=args.normalize
                                     )
     
-    val_data = ARKitScenesDataset(ARKITSCENES_PATH, split='val', 
+    val_data = DATASET_CLASS(DATA_PATH, split='val', 
                                     num_points=args.num_points,
                                     block_size=args.block_size,
                                     stride=args.stride,
@@ -393,7 +398,7 @@ def test_epoch(val_loader, model, class_weights, epoch, io):
 
 
 def test(args, io):
-    val_data = ARKitScenesDataset(ARKITSCENES_PATH, split='val', 
+    val_data = DATASET_CLASS(DATA_PATH, split='val', 
                                 num_points=args.num_points,
                                 block_size=args.block_size,
                                 stride=args.stride,

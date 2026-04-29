@@ -35,7 +35,6 @@ class BasePointBlockDataset(Dataset):
         rng_pose   = np.random.default_rng(seed=seed+1)
         rng_sensor = np.random.default_rng(seed=seed+2)
         
-        
         point_blocks, data_blocks, normal_blocks = [], [], []
 
         if pose_noise:
@@ -115,6 +114,7 @@ class BasePointBlockDataset(Dataset):
             # Extract and Normalize points
             points_in_block = points[idx][chosen]
             normals_in_block = normals[idx][chosen]
+            
             if normalize:
                 points_in_block -= points_in_block.mean(axis=0)
                 norm = np.max(np.linalg.norm(points_in_block, axis=1))
@@ -128,10 +128,11 @@ class BasePointBlockDataset(Dataset):
             data_blocks.append(current_data_group)
 
         if not point_blocks:
-            return np.empty((0, num_points, 3)), []
+            raise ValueError("NO DATA")
 
         # Reorganize data_blocks from List[Blocks][Features] to List[Features][Blocks]
         transposed_data = list(zip(*data_blocks))
+
         return np.stack(point_blocks), np.stack(normal_blocks), [np.stack(d) for d in transposed_data]
 
     def __len__(self):
