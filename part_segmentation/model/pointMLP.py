@@ -328,7 +328,7 @@ class PointNetFeaturePropagation(nn.Module):
 
 
 class PointMLP(nn.Module):
-    def __init__(self, num_classes=2, points=2048, embed_dim=64, groups=1, res_expansion=1.0,
+    def __init__(self, num_classes=2, points=2048, input_dim=6, embed_dim=64, groups=1, res_expansion=1.0,
                  activation="relu", bias=True, use_xyz=True, normalize="anchor",
                  dim_expansion=[2, 2, 2, 2], pre_blocks=[2, 2, 2, 2], pos_blocks=[2, 2, 2, 2],
                  k_neighbors=[32, 32, 32, 32], reducers=[4, 4, 4, 4],
@@ -338,7 +338,7 @@ class PointMLP(nn.Module):
         self.stages = len(pre_blocks)
         self.class_num = num_classes
         self.points = points
-        self.embedding = ConvBNReLU1D(6, embed_dim, bias=bias, activation=activation)
+        self.embedding = ConvBNReLU1D(input_dim, embed_dim, bias=bias, activation=activation) # x y z nx ny nz
         assert len(pre_blocks) == len(k_neighbors) == len(reducers) == len(pos_blocks) == len(dim_expansion)
 
         self.local_grouper_list = nn.ModuleList()
@@ -440,6 +440,26 @@ def pointMLP(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
 def pointMLPSmall(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
     return PointMLP(num_classes=num_classes, 
                     points=num_points, 
+                    embed_dim=32, 
+                    groups=1, 
+                    res_expansion=1.0,
+                    activation="relu", 
+                    bias=True, 
+                    use_xyz=True, 
+                    normalize="anchor",
+                    dim_expansion=[2, 2], 
+                    pre_blocks=[2, 2], 
+                    pos_blocks=[2, 2],
+                    k_neighbors=[24, 24], 
+                    reducers=[4, 4],
+                    de_dims=[128, 64], 
+                    de_blocks=[2, 2],
+                    gmp_dim=32, **kwargs)
+
+def pointMLPSmallExtended(num_classes=2, num_points=1024, **kwargs) -> PointMLP:
+    return PointMLP(num_classes=num_classes, 
+                    points=num_points, 
+                    input_dim=9,
                     embed_dim=32, 
                     groups=1, 
                     res_expansion=1.0,

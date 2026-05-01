@@ -5,8 +5,8 @@ import argparse
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
+from util.lobrob_dataset import LobRobDataset
 from util.arkitscenes_dataset import ARKitScenesDataset
-from util.brspcd_dataset import BrSPCDDataset
 import torch.nn.functional as F
 import torch.nn as nn
 import model as models
@@ -25,49 +25,9 @@ import shutil
 
 n_classes = 2
 labels_classes = ['environment', 'object']
-DATA_PATH = Path("/home/danish/lobster/ml_data/ARKitScenes/arkitscenes_small.h5")
-DATASET_CLASS = BrSPCDDataset
 
-
-# def parse_args():
-#     parser = argparse.ArgumentParser(description='ARKitScenes Scene Segmentation')
-#     parser.add_argument('--model',              type=str,   default='pointMLP')
-#     parser.add_argument('--exp_name',           type=str,   default=None)
-
-#     parser.add_argument('--batch_size',         type=int,   default=48)
-#     parser.add_argument('--test_batch_size',    type=int,   default=32)
-#     parser.add_argument('--epochs',             type=int,   default=350)
-
-#     parser.add_argument('--num_points',         type=int,   default=1024)
-#     parser.add_argument('--block_size',         type=int,   default=1.0)
-#     parser.add_argument('--stride',             type=int,   default=0.5)
-#     parser.add_argument('--min_points',         type=int,   default=64)
-
-#     parser.add_argument('--pose_noise',         type=bool,  default=False)
-#     parser.add_argument('--n_duplication',      type=int,   default=3)
-#     parser.add_argument('--pose_noise_range',   type=float, default=0.1)
-
-#     parser.add_argument('--sensor_noise',       type=bool,  default=False)
-#     parser.add_argument('--sensor_noise_std',   type=float, default=0.1)
-
-#     parser.add_argument('--voxelize',           type=bool,  default=False)
-#     parser.add_argument('--voxel_size',         type=float, default=0.1)
-
-#     parser.add_argument('--normal_radius',      type=float, default=0.1)
-
-#     parser.add_argument('--normalize',          type=bool,  default=True)
-
-#     parser.add_argument('--use_sgd',            type=bool,  default=False)
-#     parser.add_argument('--scheduler',          type=str,   default='step')
-#     parser.add_argument('--step',               type=int,   default=40)
-#     parser.add_argument('--lr',                 type=float, default=0.003)
-#     parser.add_argument('--momentum',           type=float, default=0.9)
-#     parser.add_argument('--manual_seed',        type=int,   default=None)
-#     parser.add_argument('--eval',               type=bool,  default=False)
-#     parser.add_argument('--workers',            type=int,   default=12)
-#     parser.add_argument('--resume',             type=bool,  default=False)
-#     parser.add_argument('--model_type',         type=str,   default='insiou')
-#     return parser.parse_args()
+DATA_PATH = Path("/home/danish/lobster/ml_data/lobrob/reefballs.h5")
+DATASET_CLASS = LobRobDataset
 
 
 def main():    
@@ -217,13 +177,12 @@ def train(args, io):
     best_class_iou = 0
     best_instance_iou = 0
 
-    labels = []
+    label_list = []
+    for _, _, labels, _ in train_loader:
+        labels = labels.numpy().flatten()
+        label_list.append(labels)
 
-    for _, _, point_data in train_loader:
-        batch_labels = point_data[0].numpy().flatten()
-        labels.append(batch_labels)
-
-    class_weights = compute_class_weights(np.array(labels).reshape(-1), n_classes, device)
+    class_weights = compute_class_weights(np.array(label_list).reshape(-1), n_classes, device)
     
     for epoch in range(args.epochs):
         train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io)
@@ -271,24 +230,25 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
 
     log_counter = 0
 
-    for points, normals, point_data in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for points, features, labels, _ in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+        
         # points: (B, 3, N) — already in correct format from dataset
         # labels: (B, N)
         batch_size, num_point, _ = points.size()
 
         points = points.float().permute(0, 2, 1)
-        normals = normals.float().permute(0, 2, 1)
-        labels = point_data[0].long()
+        feature_vector = torch.cat([f if f.dim() == 3 else f.unsqueeze(-1) for f in features], dim=2).float().permute(0, 2, 1)
+        labels = labels.long()
 
         points = points.cuda(non_blocking=True)   # (B, 3, N)
-        normals = normals.cuda(non_blocking=True)  # (B, 3, N)
+        feature_vector = feature_vector.cuda(non_blocking=True)  # (B, 3, N)
         labels = labels.cuda(non_blocking=True)    # (B, N)
 
         opt.zero_grad(set_to_none=True)
 
         # with torch.amp.autocast("cuda"):
 
-        seg_pred = model(points, normals)     
+        seg_pred = model(points, feature_vector)     
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
         loss = F.nll_loss(seg_pred_flat, labels.view(-1), class_weights)
@@ -341,19 +301,23 @@ def test_epoch(val_loader, model, class_weights, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points, normals, point_data in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points, features, labels, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+                
+            # points: (B, 3, N) — already in correct format from dataset
+            # labels: (B, N)
             batch_size, num_point, _ = points.size()
 
             points = points.float().permute(0, 2, 1)
-            normals = normals.float().permute(0, 2, 1)
-            labels = point_data[0].long()
+            feature_vector = torch.cat([f if f.dim() == 3 else f.unsqueeze(-1) for f in features], dim=2).float().permute(0, 2, 1)
+            labels = labels.long()
 
             points = points.cuda(non_blocking=True)   # (B, 3, N)
-            normals = normals.cuda(non_blocking=True)  # (B, 3, N)
+            feature_vector = feature_vector.cuda(non_blocking=True)  # (B, 3, N)
             labels = labels.cuda(non_blocking=True)    # (B, N)
 
             # with torch.amp.autocast("cuda"):
-            seg_pred = model(points, normals)
+
+            seg_pred = model(points, feature_vector)         
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
 
             # per-class iou
@@ -442,18 +406,23 @@ def test(args, io):
     per_class_seen = np.zeros(n_classes, dtype=np.int32)
 
     with torch.no_grad():
-        for points, normals, point_data in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points, features, labels, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+                
+            # points: (B, 3, N) — already in correct format from dataset
+            # labels: (B, N)
             batch_size, num_point, _ = points.size()
 
             points = points.float().permute(0, 2, 1)
-            normals = normals.float().permute(0, 2, 1)
-            labels = point_data[0].long()
+            feature_vector = torch.cat([f if f.dim() == 3 else f.unsqueeze(-1) for f in features], dim=2).float().permute(0, 2, 1)
+            labels = labels.long()
 
             points = points.cuda(non_blocking=True)   # (B, 3, N)
-            normals = normals.cuda(non_blocking=True)  # (B, 3, N)
+            feature_vector = feature_vector.cuda(non_blocking=True)  # (B, 3, N)
             labels = labels.cuda(non_blocking=True)    # (B, N)
 
-            seg_pred = model(points, normals)
+            # with torch.amp.autocast("cuda"):
+
+            seg_pred = model(points, feature_vector)    
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
             shape_ious += batch_shapeious
 

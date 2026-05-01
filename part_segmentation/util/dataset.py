@@ -107,9 +107,9 @@ class BasePointBlockDataset(Dataset):
                     extra_data_new[i].append(ed_mean)
 
             points = points_new
-            feature_data = feature_data_new
-            labels = labels_new
-            extra_data = extra_data_new
+            feature_data = [np.array(data) for data in feature_data_new]
+            labels = np.array(labels_new)
+            extra_data = [np.array(data) for data in extra_data_new]
 
         tree = KDTree(points)
 
