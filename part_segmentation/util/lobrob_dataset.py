@@ -3,7 +3,7 @@ import numpy as np
 from tqdm import tqdm
 from .dataset import BasePointBlockDataset
 
-class BrSPCDDataset(BasePointBlockDataset):
+class LobRobDataset(BasePointBlockDataset):
     def __init__(self, 
                  h5_path, 
                  split="train", 
@@ -31,16 +31,18 @@ class BrSPCDDataset(BasePointBlockDataset):
             scene_ids = list(f[split].keys())
             for sid in tqdm(scene_ids, desc=f"Loading {split}"):
                 grp = f[split][sid]
-                # Load features
+
                 points = np.asarray(grp["points"], dtype=np.float32)
                 labels = np.asarray(grp["labels"], dtype=np.int64)
 
-                feature_data = [
+                ria = 0
 
+                feature_data = [
+                    
                 ]
 
                 extra_data = [
-
+                    np.asarray(grp["colors"], dtype=np.float32)
                 ]
                 
                 xyz_block, label_block, feature_block, extra_block = self.data_to_blocks(points=points,

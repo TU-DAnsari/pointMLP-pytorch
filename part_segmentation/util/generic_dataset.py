@@ -1,13 +1,11 @@
-import h5py
-import numpy as np
-import torch
-from tqdm import tqdm
 from .dataset import BasePointBlockDataset
 
 class GenericDataset(BasePointBlockDataset):
     def __init__(self, 
-                 points, 
-                 point_data,
+                 points,
+                 labels,
+                 feature_data,
+                 extra_data,
                  num_points=1024, 
                  block_size=1.0, 
                  stride=0.5, 
@@ -26,27 +24,30 @@ class GenericDataset(BasePointBlockDataset):
         
         super().__init__()
         
-        pb, nb, db = self.data_to_blocks(points=points,
-                                         point_data=point_data,
-                                         num_points=num_points,
-                                         block_size=block_size,
-                                         stride=stride,
-                                         min_points=min_points,
-                                         pose_noise=pose_noise,
-                                         n_duplication=n_duplication,
-                                         pose_noise_range=pose_noise_range,
-                                         sensor_noise=sensor_noise,
-                                         sensor_noise_std=sensor_noise_std,
-                                         voxelize=voxelize,
-                                         voxel_size=voxel_size,
-                                         normal_radius=normal_radius,
-                                         normalize=normalize,
-                                         seed=seed,
-                                         )
-                
-        self.point_blocks = pb
-        self.normal_blocks = nb
-        self.data_blocks = db
+        xyz_blocks, label_blocks, feature_blocks, extra_blocks = self.data_to_blocks(points=points,
+                                                                                     labels=labels,
+                                                                                     feature_data=feature_data,
+                                                                                     extra_data=extra_data,
+                                                                                     num_points=num_points,
+                                                                                     block_size=block_size,
+                                                                                     stride=stride,
+                                                                                     min_points=min_points,
+                                                                                     pose_noise=pose_noise,
+                                                                                     n_duplication=n_duplication,
+                                                                                     pose_noise_range=pose_noise_range,
+                                                                                     sensor_noise=sensor_noise,
+                                                                                     sensor_noise_std=sensor_noise_std,
+                                                                                     voxelize=voxelize,
+                                                                                     voxel_size=voxel_size,
+                                                                                     normal_radius=normal_radius,
+                                                                                     normalize=normalize,
+                                                                                     seed=seed,
+                                                                                     )
+
+        self.xyz_blocks = xyz_blocks
+        self.feature_blocks = feature_blocks
+        self.label_blocks = label_blocks
+        self.extra_blocks = extra_blocks
         
     def __getitem__(self, idx):
-        return self.point_blocks[idx], self.normal_blocks[idx], [self.data_blocks[i][idx] for i in range(len(self.data_blocks))]
+      return self.xyz_blocks[idx], [feature[idx] for feature in self.feature_blocks], self.label_blocks[idx], [extra[idx] for extra in self.extra_blocks]

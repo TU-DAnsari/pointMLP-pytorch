@@ -1,20 +1,21 @@
-import h5py
 import numpy as np
-import torch
 from torch.utils.data import Dataset
-from tqdm import tqdm
 from scipy.spatial import KDTree
 import open3d as o3d
+import scipy
 
 class BasePointBlockDataset(Dataset):
     def __init__(self):
-        self.point_blocks = None
-        self.normal_blocks = None
-        self.data_blocks = None
+        self.xyz_blocks = None
+        self.feature_blocks = None
+        self.label_blocks = None
+        self.extra_blocks = None
 
     @staticmethod
     def data_to_blocks(points, 
-                       point_data, 
+                       labels,
+                       feature_data, 
+                       extra_data,
                        num_points, 
                        block_size, 
                        stride, 
@@ -35,25 +36,41 @@ class BasePointBlockDataset(Dataset):
         rng_pose   = np.random.default_rng(seed=seed+1)
         rng_sensor = np.random.default_rng(seed=seed+2)
         
-        point_blocks, data_blocks, normal_blocks = [], [], []
+        if len(extra_data) == 0:
+            extra_data = [np.zeros_like(points)]
+
+        xyz_blocks, label_blocks, feature_blocks, extra_blocks = [], [], [], []
 
         if pose_noise:
             n_points_orig = points.shape[0]
             points_new = np.zeros((int(n_duplication * n_points_orig), 3))
-            point_data_new = []
-            for data in point_data:
-                if len(data.shape) == 1:
-                    data_new = np.tile(data, n_duplication)
+
+            feature_data_new = []
+            for fd in feature_data:
+                if len(fd.shape) == 1:
+                    fd_new = np.tile(fd, n_duplication)
                 else:
-                    data_new = np.tile(data, (n_duplication, 1))
-                point_data_new.append(data_new)
-             
-            for i in range(0, n_duplication*n_points_orig, n_points_orig):
-                translation = -1*pose_noise_range + (2 * pose_noise_range) * rng_pose.random(3)
-                points_new[i:i+n_points_orig] = translation + points
+                    fd_new = np.tile(fd, (n_duplication, 1))
+                feature_data_new.append(fd_new)
+
+            labels_new = np.tile(labels, n_duplication)
+
+            extra_data_new = []
+            for ed in extra_data:
+                if len(ed.shape) == 1:
+                    ed_new = np.tile(ed, n_duplication)
+                else:
+                    ed_new = np.tile(ed, (n_duplication, 1))
+                extra_data_new.append(ed_new)
+
+            for i in range(0, n_duplication * n_points_orig, n_points_orig):
+                translation = -1 * pose_noise_range + (2 * pose_noise_range) * rng_pose.random(3)
+                points_new[i:i + n_points_orig] = translation + points
 
             points = points_new
-            point_data = point_data_new
+            feature_data = feature_data_new
+            labels = labels_new
+            extra_data = extra_data_new
 
         if sensor_noise:
             points += rng_sensor.normal(0, sensor_noise_std, points.shape)
@@ -68,20 +85,31 @@ class BasePointBlockDataset(Dataset):
             )
 
             points_new = np.asarray(pcd.points)
-            point_data_new = [[] for _ in point_data]
+            feature_data_new = [[] for _ in feature_data]
+            labels_new = []
+            extra_data_new = [[] for _ in extra_data]
 
             for original_indices in trace_map:
                 original_indices = original_indices[original_indices != -1]
-                for i, data in enumerate(point_data):
-                    averaged_data = np.mean(data[original_indices], axis=0)
 
-                    if len(data.shape) == 1:
-                        averaged_data = np.round(averaged_data)
+                for i, fd in enumerate(feature_data):
+                    fd_mean = np.mean(fd[original_indices], axis=0)
+                    if len(fd.shape) == 1:
+                        fd_mean = np.round(fd_mean)
+                    feature_data_new[i].append(fd_mean)
 
-                    point_data_new[i].append(averaged_data)
+                labels_new.append(scipy.stats.mode(labels[original_indices], keepdims=False).mode)
+
+                for i, ed in enumerate(extra_data):
+                    ed_mean = np.mean(ed[original_indices], axis=0)
+                    if ed.ndim == 1:
+                        ed_mean = np.round(ed_mean)
+                    extra_data_new[i].append(ed_mean)
 
             points = points_new
-            point_data = [np.array(data) for data in point_data_new]
+            feature_data = feature_data_new
+            labels = labels_new
+            extra_data = extra_data_new
 
         tree = KDTree(points)
 
@@ -94,7 +122,7 @@ class BasePointBlockDataset(Dataset):
         pcd.orient_normals_towards_camera_location(camera_location=center)
 
         normals = np.asarray(pcd.normals)
-        
+
         mins, maxes = tree.mins, tree.maxes
         x_range = np.arange(mins[0], maxes[0], stride)
         y_range = np.arange(mins[1], maxes[1], stride)
@@ -107,34 +135,39 @@ class BasePointBlockDataset(Dataset):
             if len(idx) < min_points:
                 continue
 
-            # Resampling logic
             replace = len(idx) < num_points
             chosen = rng_sampling.choice(len(idx), num_points, replace=replace)
-            
-            # Extract and Normalize points
+
             points_in_block = points[idx][chosen]
             normals_in_block = normals[idx][chosen]
-            
+
             if normalize:
                 points_in_block -= points_in_block.mean(axis=0)
                 norm = np.max(np.linalg.norm(points_in_block, axis=1))
                 if norm > 0: points_in_block /= norm
-            
-            point_blocks.append(points_in_block)
-            normal_blocks.append(normals_in_block)
 
-            # Extract associated data (labels, normals, etc)
-            current_data_group = [d[idx][chosen] for d in point_data]
-            data_blocks.append(current_data_group)
+            xyz_blocks.append(points_in_block)
 
-        if not point_blocks:
+            current_data_group = [normals_in_block] + [fd[idx][chosen] for fd in feature_data]
+            feature_blocks.append(current_data_group)
+
+            label_blocks.append(labels[idx][chosen])
+
+            extra_blocks.append([ed[idx][chosen] for ed in extra_data])
+
+        if not xyz_blocks:
             raise ValueError("NO DATA")
+        
+        transposed_features = list(zip(*feature_blocks))   # List[Features][Blocks]
+        transposed_extra = list(zip(*extra_blocks))         # List[Features][Blocks]
 
-        # Reorganize data_blocks from List[Blocks][Features] to List[Features][Blocks]
-        transposed_data = list(zip(*data_blocks))
-
-        return np.stack(point_blocks), np.stack(normal_blocks), [np.stack(d) for d in transposed_data]
+        return (
+            np.stack(xyz_blocks),                           # (B, N, 3)
+            np.stack(label_blocks),                         # (B, N)
+            [np.stack(f) for f in transposed_features],     # List of (B, N, ...)
+            [np.stack(e) for e in transposed_extra],        # List of (B, N, ...)
+        )
 
     def __len__(self):
-        return len(self.point_blocks) if self.point_blocks is not None else 0
+        return len(self.xyz_blocks) if self.xyz_blocks is not None else 0
         

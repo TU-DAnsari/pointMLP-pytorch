@@ -1,6 +1,5 @@
 import h5py
 import numpy as np
-import torch
 from tqdm import tqdm
 from .dataset import BasePointBlockDataset
 
@@ -26,43 +25,53 @@ class ARKitScenesDataset(BasePointBlockDataset):
         
         super().__init__()
         
-        all_pts, all_normals, all_data = [], [], []
+        xyz_blocks, label_blocks, feature_blocks, extra_blocks = [], [], [], []
 
         with h5py.File(h5_path, "r") as f:
             scene_ids = list(f[split].keys())
             for sid in tqdm(scene_ids, desc=f"Loading {split}"):
                 grp = f[split][sid]
-                # Load features
+
                 points = np.asarray(grp["points"], dtype=np.float32)
-                point_data = [
-                    np.asarray(grp["labels"], dtype=np.int64),
+                labels = np.asarray(grp["labels"], dtype=np.int64)
+
+                feature_data = [
+                    
+                ]
+
+                extra_data = [
                     np.asarray(grp["colors"], dtype=np.float32)
                 ]
                 
-                pb, nb, db = self.data_to_blocks(points=points,
-                                                point_data=point_data,
-                                                num_points=num_points,
-                                                block_size=block_size,
-                                                stride=stride,
-                                                min_points=min_points,
-                                                pose_noise=pose_noise,
-                                                n_duplication=n_duplication,
-                                                pose_noise_range=pose_noise_range,
-                                                sensor_noise=sensor_noise,
-                                                sensor_noise_std=sensor_noise_std,
-                                                voxelize=voxelize,
-                                                voxel_size=voxel_size,
-                                                normal_radius=normal_radius,
-                                                normalize=normalize,
-                                                seed=seed,
-                                                )
-                all_pts.append(pb)
-                all_normals.append(nb)
-                all_data.append(db)
+                xyz_block, label_block, feature_block, extra_block = self.data_to_blocks(points=points,
+                                                                                            labels=labels,
+                                                                                            feature_data=feature_data,
+                                                                                            extra_data=extra_data,
+                                                                                            num_points=num_points,
+                                                                                            block_size=block_size,
+                                                                                            stride=stride,
+                                                                                            min_points=min_points,
+                                                                                            pose_noise=pose_noise,
+                                                                                            n_duplication=n_duplication,
+                                                                                            pose_noise_range=pose_noise_range,
+                                                                                            sensor_noise=sensor_noise,
+                                                                                            sensor_noise_std=sensor_noise_std,
+                                                                                            voxelize=voxelize,
+                                                                                            voxel_size=voxel_size,
+                                                                                            normal_radius=normal_radius,
+                                                                                            normalize=normalize,
+                                                                                            seed=seed,
+                                                                                            )
+                
+                xyz_blocks.append(xyz_block)
+                label_blocks.append(label_block)
+                feature_blocks.append(feature_block)
+                extra_blocks.append(extra_block)
 
-        self.point_blocks = np.concatenate(all_pts, axis=0)
-        self.normal_blocks = np.concatenate(all_normals, axis=0)
-        self.data_blocks = [np.concatenate([d[i] for d in all_data], axis=0) for i in range(len(all_data[0]))]
+        self.xyz_blocks = np.concatenate(xyz_blocks, axis=0)
+        self.feature_blocks = [np.concatenate([fb[i] for fb in feature_blocks], axis=0) for i in range(len(feature_blocks[0]))]
+        self.label_blocks = np.concatenate(label_blocks, axis=0)
+        self.extra_blocks = [np.concatenate([eb[i] for eb in extra_blocks], axis=0) for i in range(len(extra_blocks[0]))]
 
     def __getitem__(self, idx):
-        return self.point_blocks[idx], self.normal_blocks[idx], [self.data_blocks[i][idx] for i in range(len(self.data_blocks))]
+        return self.xyz_blocks[idx], [feature[idx] for feature in self.feature_blocks], self.label_blocks[idx], [extra[idx] for extra in self.extra_blocks]
