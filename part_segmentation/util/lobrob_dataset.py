@@ -35,14 +35,19 @@ class LobRobDataset(BasePointBlockDataset):
                 points = np.asarray(grp["points"], dtype=np.float32)
                 labels = np.asarray(grp["labels"], dtype=np.int64)
 
-                ria = 0
+                ranges = np.asarray(grp["ranges"], dtype=np.float32)
+                intensities = np.asarray(grp["intensities"], dtype=np.float32)
+                aoi = np.asarray(grp["angles_of_incidence"], dtype=np.float32)
+
+                ranges_norm = ranges / 15
+                intensities_norm = intensities / 255
 
                 feature_data = [
-                    
+                    ranges_norm, intensities_norm, aoi
                 ]
 
                 extra_data = [
-                    np.asarray(grp["colors"], dtype=np.float32)
+                    
                 ]
                 
                 xyz_block, label_block, feature_block, extra_block = self.data_to_blocks(points=points,
