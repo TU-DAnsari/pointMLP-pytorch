@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from scipy.spatial import KDTree
 import open3d as o3d
 import scipy
+from tqdm import tqdm
 
 class BasePointBlockDataset(Dataset):
     def __init__(self):
@@ -79,35 +80,48 @@ class BasePointBlockDataset(Dataset):
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(points)
             pcd, trace_map, _ = pcd.voxel_down_sample_and_trace(
-                voxel_size,
-                pcd.get_min_bound(),
+                voxel_size, 
+                pcd.get_min_bound(), 
                 pcd.get_max_bound()
             )
 
-            points_new = np.asarray(pcd.points)
-            feature_data_new = [[] for _ in feature_data]
-            labels_new = []
-            extra_data_new = [[] for _ in extra_data]
+            n_voxels = len(trace_map)
 
-            for original_indices in trace_map:
-                original_indices = original_indices[original_indices != -1]
+            vox_ids_list, pt_ids_list = [], []
+            for vox_idx, indices in enumerate(trace_map):
+                idx = np.asarray(indices)
+                idx = idx[idx != -1]
+                vox_ids_list.append(np.full(len(idx), vox_idx, dtype=np.int64))
+                pt_ids_list.append(idx)
 
-                for i, fd in enumerate(feature_data):
-                    fd_mean = np.mean(fd[original_indices], axis=0)
-                    feature_data_new[i].append(fd_mean)
+            vox_ids = np.concatenate(vox_ids_list)   
+            pt_ids  = np.concatenate(pt_ids_list)    
+            counts  = np.bincount(vox_ids, minlength=n_voxels).astype(np.float64)  
 
-                labels_new.append(scipy.stats.mode(labels[original_indices], keepdims=False).mode)
+            def grouped_mean(arr):
+                if arr.ndim == 1:
+                    return np.bincount(vox_ids, weights=arr[pt_ids], minlength=n_voxels) / counts
+                out = np.empty((n_voxels, arr.shape[1]), dtype=np.float64)
+                for j in range(arr.shape[1]):
+                    out[:, j] = np.bincount(vox_ids, weights=arr[pt_ids, j], minlength=n_voxels) / counts
+                return out
 
-                for i, ed in enumerate(extra_data):
-                    ed_mean = np.mean(ed[original_indices], axis=0)
-                    if ed.ndim == 1:
-                        ed_mean = np.round(ed_mean)
-                    extra_data_new[i].append(ed_mean)
+            feature_data = [grouped_mean(fd) for fd in feature_data]
 
-            points = points_new
-            feature_data = [np.array(data) for data in feature_data_new]
-            labels = np.array(labels_new)
-            extra_data = [np.array(data) for data in extra_data_new]
+            unique_labels, label_idx = np.unique(labels, return_inverse=True)
+            vote_matrix = np.zeros((n_voxels, len(unique_labels)), dtype=np.int32)
+            np.add.at(vote_matrix, (vox_ids, label_idx[pt_ids]), 1)
+            labels = unique_labels[np.argmax(vote_matrix, axis=1)]
+
+            extra_data_new = []
+            for ed in extra_data:
+                ed_mean = grouped_mean(ed)
+                if ed.ndim == 1:
+                    ed_mean = np.round(ed_mean)
+                extra_data_new.append(ed_mean)
+            extra_data = extra_data_new
+
+            points = np.asarray(pcd.points)
 
         tree = KDTree(points)
 
