@@ -179,6 +179,10 @@ class BasePointBlockDataset(Dataset):
             [np.stack(f) for f in transposed_features],     # List of (B, N, ...)
             [np.stack(e) for e in transposed_extra],        # List of (B, N, ...)
         )
+    
+    def normalize(self, data):
+        return (data - 0) / (data.max() - 0)
+
 
     def __len__(self):
         return len(self.xyz_blocks) if self.xyz_blocks is not None else 0

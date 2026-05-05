@@ -6,6 +6,8 @@ from .dataset import BasePointBlockDataset
 class LobRobDataset(BasePointBlockDataset):
     def __init__(self, 
                  h5_path, 
+                 feature_names=[],
+                 extra_data_names=[],
                  split="train", 
                  num_points=1024, 
                  block_size=1.0, 
@@ -35,20 +37,13 @@ class LobRobDataset(BasePointBlockDataset):
                 points = np.asarray(grp["points"], dtype=np.float32)
                 labels = np.asarray(grp["labels"], dtype=np.int64)
 
-                ranges = np.asarray(grp["ranges"], dtype=np.float32)
-                intensities = np.asarray(grp["intensities"], dtype=np.float32)
-                aoi = np.asarray(grp["angles_of_incidence"], dtype=np.float32)
+                feature_data = []
+                for feature_name in feature_names:
+                    feature_data.append(self.normalize(np.asarray(grp[feature_name], dtype=np.float32)))
 
-                ranges_norm = ranges / 15
-                intensities_norm = intensities / 255
-
-                feature_data = [
-                    ranges_norm, intensities_norm, aoi
-                ]
-
-                extra_data = [
-                    
-                ]
+                extra_data = []
+                for extra_data_name in extra_data_names:
+                    extra_data.append(self.normalize(np.asarray(grp[extra_data_name], dtype=np.float32)))
                 
                 xyz_block, label_block, feature_block, extra_block = self.data_to_blocks(points=points,
                                                                                             labels=labels,
