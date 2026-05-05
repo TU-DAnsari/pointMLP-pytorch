@@ -94,8 +94,6 @@ class BasePointBlockDataset(Dataset):
 
                 for i, fd in enumerate(feature_data):
                     fd_mean = np.mean(fd[original_indices], axis=0)
-                    if len(fd.shape) == 1:
-                        fd_mean = np.round(fd_mean)
                     feature_data_new[i].append(fd_mean)
 
                 labels_new.append(scipy.stats.mode(labels[original_indices], keepdims=False).mode)
