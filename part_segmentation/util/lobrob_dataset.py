@@ -6,8 +6,8 @@ from .dataset import BasePointBlockDataset
 class LobRobDataset(BasePointBlockDataset):
     def __init__(self, 
                  h5_path, 
-                 feature_names=[],
-                 extra_data_names=[],
+                 primary_input_names,
+                 secondary_input_names,
                  split="train", 
                  num_points=1024, 
                  block_size=1.0, 
@@ -27,7 +27,7 @@ class LobRobDataset(BasePointBlockDataset):
         
         super().__init__()
         
-        xyz_blocks, label_blocks, feature_blocks, extra_blocks = [], [], [], []
+        point_blocks, primary_blocks, secondary_blocks, label_blocks, extra_blocks = [], [], [], [], []
 
         with h5py.File(h5_path, "r") as f:
             scene_ids = list(f[split].keys())
@@ -36,18 +36,31 @@ class LobRobDataset(BasePointBlockDataset):
 
                 points = np.asarray(grp["points"], dtype=np.float32)
                 labels = np.asarray(grp["labels"], dtype=np.int64)
+                ranges = self.normalize(data=np.asarray(grp["ranges"]), max_bound=15.0, min_bound=0.0)
+                intensities = self.normalize(data=np.asarray(grp["intensities"]), max_bound=255.0, min_bound=0.0)
+                angles_of_incidence = np.asarray(grp["angles_of_incidence"])
 
-                feature_data = []
-                for feature_name in feature_names:
-                    feature_data.append(self.normalize(np.asarray(grp[feature_name], dtype=np.float32)))
+                feature_map = {
+                    "points": points,
+                    "ranges": ranges,
+                    "intensities": intensities,
+                    "angles_of_incidence": angles_of_incidence,
+                }
 
-                extra_data = []
-                for extra_data_name in extra_data_names:
-                    extra_data.append(self.normalize(np.asarray(grp[extra_data_name], dtype=np.float32)))
                 
-                xyz_block, label_block, feature_block, extra_block = self.data_to_blocks(points=points,
+
+                primary_inputs = LobRobDataset.concat_features(primary_input_names, feature_map)
+
+                if len(secondary_input_names) != 0:
+                    secondary_inputs = LobRobDataset.concat_features(secondary_input_names, feature_map)
+                else:
+                    secondary_inputs = np.zeros_like(points)
+                extra_data = []
+                
+                points_block, primary_block, secondary_block, label_block, extra_block = self.data_to_blocks(points,
+                                                                                            primary_inputs,
+                                                                                            secondary_inputs,
                                                                                             labels=labels,
-                                                                                            feature_data=feature_data,
                                                                                             extra_data=extra_data,
                                                                                             num_points=num_points,
                                                                                             block_size=block_size,
@@ -65,15 +78,17 @@ class LobRobDataset(BasePointBlockDataset):
                                                                                             seed=seed,
                                                                                             )
                 
-                xyz_blocks.append(xyz_block)
+                point_blocks.append(points_block)
+                primary_blocks.append(primary_block)
+                secondary_blocks.append(secondary_block)
                 label_blocks.append(label_block)
-                feature_blocks.append(feature_block)
                 extra_blocks.append(extra_block)
 
-        self.xyz_blocks = np.concatenate(xyz_blocks, axis=0)
-        self.feature_blocks = [np.concatenate([fb[i] for fb in feature_blocks], axis=0) for i in range(len(feature_blocks[0]))]
+        self.point_blocks = np.concatenate(point_blocks, axis=0)
+        self.primary_blocks = np.concatenate(primary_blocks, axis=0)
+        self.secondary_blocks = np.concatenate(secondary_blocks, axis=0)
         self.label_blocks = np.concatenate(label_blocks, axis=0)
-        self.extra_blocks = [np.concatenate([eb[i] for eb in extra_blocks], axis=0) for i in range(len(extra_blocks[0]))]
+        self.extra_blocks = np.concatenate(extra_blocks, axis=0)
 
     def __getitem__(self, idx):
-        return self.xyz_blocks[idx], [feature[idx] for feature in self.feature_blocks], self.label_blocks[idx], [extra[idx] for extra in self.extra_blocks]
+        return self.point_blocks[idx], self.primary_blocks[idx], self.secondary_blocks[idx], self.label_blocks[idx], self.extra_blocks[idx]
