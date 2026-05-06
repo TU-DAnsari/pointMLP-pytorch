@@ -36,6 +36,9 @@ def main():
 
     if args.exp_name is None:
         args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
+
+    if args.secondary_input is None:
+        args.secondary_input = []
         
     _init_(args=args)
 
@@ -112,37 +115,43 @@ def train(args, io):
 
     # model = torch.compile(model)
     
-    train_data = DATASET_CLASS(DATA_PATH, split='train', 
-                                    num_points=args.num_points,
-                                    block_size=args.block_size,
-                                    stride=args.stride,
-                                    min_points=args.min_points,
-                                    pose_noise=args.pose_noise,
-                                    n_duplication=args.n_duplication,
-                                    pose_noise_range=args.pose_noise_range,
-                                    sensor_noise=args.sensor_noise,
-                                    sensor_noise_std=args.sensor_noise_std,
-                                    voxelize=args.voxelize,
-                                    voxel_size=args.voxel_size,
-                                    normal_radius=args.normal_radius,
-                                    normalize=args.normalize
-                                    )
+    train_data = DATASET_CLASS(DATA_PATH,
+                            primary_input_names=args.primary_input,
+                            secondary_input_names=args.secondary_input,
+                            split="train", 
+                            num_points=args.num_points,
+                            block_size=args.block_size,
+                            stride=args.stride,
+                            min_points=args.min_points,
+                            pose_noise=args.pose_noise,
+                            n_duplication=args.n_duplication,
+                            pose_noise_range=args.pose_noise_range,
+                            sensor_noise=args.sensor_noise,
+                            sensor_noise_std=args.sensor_noise_std,
+                            voxelize=args.voxelize,
+                            voxel_size=args.voxel_size,
+                            normal_radius=args.normal_radius,
+                            normalize=args.normalize
+                            )
     
-    val_data = DATASET_CLASS(DATA_PATH, split='val', 
-                                    num_points=args.num_points,
-                                    block_size=args.block_size,
-                                    stride=args.stride,
-                                    min_points=args.min_points,
-                                    pose_noise=args.pose_noise,
-                                    n_duplication=args.n_duplication,
-                                    pose_noise_range=args.pose_noise_range,
-                                    sensor_noise=args.sensor_noise,
-                                    sensor_noise_std=args.sensor_noise_std,
-                                    voxelize=args.voxelize,
-                                    voxel_size=args.voxel_size,
-                                    normal_radius=args.normal_radius,
-                                    normalize=args.normalize
-                                    )
+    val_data = DATASET_CLASS(DATA_PATH, 
+                            primary_input_names=args.primary_input,
+                            secondary_input_names=args.secondary_input,
+                            split="val", 
+                            num_points=args.num_points,
+                            block_size=args.block_size,
+                            stride=args.stride,
+                            min_points=args.min_points,
+                            pose_noise=args.pose_noise,
+                            n_duplication=args.n_duplication,
+                            pose_noise_range=args.pose_noise_range,
+                            sensor_noise=args.sensor_noise,
+                            sensor_noise_std=args.sensor_noise_std,
+                            voxelize=args.voxelize,
+                            voxel_size=args.voxel_size,
+                            normal_radius=args.normal_radius,
+                            normalize=args.normalize
+                            )
 
     print("Training samples: %d" % len(train_data))
     print("Validation samples: %d" % len(val_data))
@@ -178,9 +187,9 @@ def train(args, io):
     best_instance_iou = 0
 
     label_list = []
-    for _, _, labels, _ in train_loader:
-        labels = labels.numpy().flatten()
-        label_list.append(labels)
+    for _, _, _, label_batch, _ in train_loader:
+        label_batch = label_batch.numpy().flatten()
+        label_list.append(label_batch)
 
     class_weights = compute_class_weights(np.array(label_list).reshape(-1), n_classes, device)
     
@@ -230,25 +239,31 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
 
     log_counter = 0
 
-    for points, features, labels, _ in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for _, primary_batch, secondary_batch, label_batch, _ in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+        batch_size, num_point, _ = primary_batch.size()
+
+        primary_input = primary_batch.float().permute(0, 2, 1)
+
+        if len(args.secondary_input) == 0 and args.use_normals:
+            secondary_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
+        if len(args.secondary_input) == 0 and not args.use_normals:
+            secondary_input = primary_batch.float().permute(0, 2, 1)
+        if len(args.secondary_input) != 0 and args.use_normals:
+            secondary_input = secondary_batch.float().permute(0, 2, 1)
+        if len(args.secondary_input) != 0 and not args.use_normals:
+            raise NotImplementedError("Should not be using this configuration")
         
-        # points: (B, 3, N) — already in correct format from dataset
-        # labels: (B, N)
-        batch_size, num_point, _ = points.size()
+        labels = label_batch.long()
 
-        points = points.float().permute(0, 2, 1)
-        feature_vector = torch.cat([f if f.dim() == 3 else f.unsqueeze(-1) for f in features], dim=2).float().permute(0, 2, 1)
-        labels = labels.long()
-
-        points = points.cuda(non_blocking=True)   # (B, 3, N)
-        feature_vector = feature_vector.cuda(non_blocking=True)  # (B, 3, N)
-        labels = labels.cuda(non_blocking=True)    # (B, N)
+        primary_input = primary_input.cuda(non_blocking=True)
+        secondary_input = secondary_input.cuda(non_blocking=True) 
+        labels = labels.cuda(non_blocking=True)
 
         opt.zero_grad(set_to_none=True)
 
         # with torch.amp.autocast("cuda"):
 
-        seg_pred = model(points, feature_vector)     
+        seg_pred = model(primary_input, secondary_input)     
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
         loss = F.nll_loss(seg_pred_flat, labels.view(-1), class_weights)
@@ -301,23 +316,29 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points, features, labels, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
-                
-            # points: (B, 3, N) — already in correct format from dataset
-            # labels: (B, N)
-            batch_size, num_point, _ = points.size()
+        for _, primary_batch, secondary_batch, label_batch, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+            batch_size, num_point, _ = primary_batch.size()
 
-            points = points.float().permute(0, 2, 1)
-            feature_vector = torch.cat([f if f.dim() == 3 else f.unsqueeze(-1) for f in features], dim=2).float().permute(0, 2, 1)
-            labels = labels.long()
+            primary_input = primary_batch.float().permute(0, 2, 1)
 
-            points = points.cuda(non_blocking=True)   # (B, 3, N)
-            feature_vector = feature_vector.cuda(non_blocking=True)  # (B, 3, N)
-            labels = labels.cuda(non_blocking=True)    # (B, N)
+            if len(args.secondary_input) == 0 and args.use_normals:
+                secondary_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
+            if len(args.secondary_input) == 0 and not args.use_normals:
+                secondary_input = primary_batch.float().permute(0, 2, 1)
+            if len(args.secondary_input) != 0 and args.use_normals:
+                secondary_input = secondary_batch.float().permute(0, 2, 1)
+            if len(args.secondary_input) != 0 and not args.use_normals:
+                raise NotImplementedError("Should not be using this configuration")
+            
+            labels = label_batch.long()
+
+            primary_input = primary_input.cuda(non_blocking=True)
+            secondary_input = secondary_input.cuda(non_blocking=True) 
+            labels = labels.cuda(non_blocking=True)
 
             # with torch.amp.autocast("cuda"):
 
-            seg_pred = model(points, feature_vector)         
+            seg_pred = model(primary_input, secondary_input)         
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
 
             # per-class iou
@@ -362,21 +383,24 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
 
 
 def test(args, io):
-    val_data = DATASET_CLASS(DATA_PATH, split='val', 
-                                num_points=args.num_points,
-                                block_size=args.block_size,
-                                stride=args.stride,
-                                min_points=args.min_points,
-                                pose_noise=args.pose_noise,
-                                n_duplication=args.n_duplication,
-                                pose_noise_range=args.pose_noise_range,
-                                sensor_noise=args.sensor_noise,
-                                sensor_noise_std=args.sensor_noise_std,
-                                voxelize=args.voxelize,
-                                voxel_size=args.voxel_size,
-                                normal_radius=args.normal_radius,
-                                normalize=args.normalize
-                                )
+    val_data = DATASET_CLASS(DATA_PATH, 
+                            primary_input_names=args.primary_input,
+                            secondary_input_names=args.secondary_input,
+                            split="val", 
+                            num_points=args.num_points,
+                            block_size=args.block_size,
+                            stride=args.stride,
+                            min_points=args.min_points,
+                            pose_noise=args.pose_noise,
+                            n_duplication=args.n_duplication,
+                            pose_noise_range=args.pose_noise_range,
+                            sensor_noise=args.sensor_noise,
+                            sensor_noise_std=args.sensor_noise_std,
+                            voxelize=args.voxelize,
+                            voxel_size=args.voxel_size,
+                            normal_radius=args.normal_radius,
+                            normalize=args.normalize
+                            )
     
     val_loader = DataLoader(val_data, 
                               batch_size=args.test_batch_size, 
@@ -406,23 +430,27 @@ def test(args, io):
     per_class_seen = np.zeros(n_classes, dtype=np.int32)
 
     with torch.no_grad():
-        for points, features, labels, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
-                
-            # points: (B, 3, N) — already in correct format from dataset
-            # labels: (B, N)
-            batch_size, num_point, _ = points.size()
+        for _, primary_batch, secondary_batch, label_batch, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+            batch_size, num_point, _ = primary_batch.size()
 
-            points = points.float().permute(0, 2, 1)
-            feature_vector = torch.cat([f if f.dim() == 3 else f.unsqueeze(-1) for f in features], dim=2).float().permute(0, 2, 1)
-            labels = labels.long()
+            primary_input = primary_batch.float().permute(0, 2, 1)
 
-            points = points.cuda(non_blocking=True)   # (B, 3, N)
-            feature_vector = feature_vector.cuda(non_blocking=True)  # (B, 3, N)
-            labels = labels.cuda(non_blocking=True)    # (B, N)
+            if len(args.secondary_input) == 0 and args.use_normals:
+                secondary_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
+            if len(args.secondary_input) == 0 and not args.use_normals:
+                secondary_input = primary_batch.float().permute(0, 2, 1)
+            if len(args.secondary_input) != 0 and args.use_normals:
+                secondary_input = secondary_batch.float().permute(0, 2, 1)
+            if len(args.secondary_input) != 0 and not args.use_normals:
+                raise NotImplementedError("Should not be using this configuration")
+            
+            labels = label_batch.long()
 
-            # with torch.amp.autocast("cuda"):
+            primary_input = primary_input.cuda(non_blocking=True)
+            secondary_input = secondary_input.cuda(non_blocking=True) 
+            labels = labels.cuda(non_blocking=True)
 
-            seg_pred = model(points, feature_vector)    
+            seg_pred = model(primary_input, secondary_input)
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
             shape_ious += batch_shapeious
 

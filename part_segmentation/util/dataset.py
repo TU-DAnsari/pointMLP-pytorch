@@ -36,24 +36,24 @@ class BasePointBlockDataset(Dataset):
     @staticmethod
     def data_to_blocks(points,
                         primary_inputs, 
-                       secondary_inputs,
-                       labels,
-                       extra_data,
-                       num_points, 
-                       block_size, 
-                       stride, 
-                       min_points, 
-                       pose_noise=False,
-                       n_duplication=3,
-                       pose_noise_range=0.1,
-                       sensor_noise=False,
-                       sensor_noise_std=0.1,
-                       voxelize=False,
-                       voxel_size=0.1,
-                       normal_radius=0.1,
-                       normalize=True,
-                       seed=42
-                       ):
+                        secondary_inputs,
+                        labels,
+                        extra_data,
+                        num_points, 
+                        block_size, 
+                        stride, 
+                        min_points, 
+                        pose_noise=False,
+                        n_duplication=3,
+                        pose_noise_range=0.1,
+                        sensor_noise=False,
+                        sensor_noise_std=0.1,
+                        voxelize=False,
+                        voxel_size=0.1,
+                        normal_radius=0.1,
+                        normalize=True,
+                        seed=42
+                        ):
         
         rng_sampling = np.random.default_rng(seed=seed)
         rng_pose = np.random.default_rng(seed=seed+1)

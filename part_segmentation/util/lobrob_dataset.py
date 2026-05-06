@@ -47,8 +47,6 @@ class LobRobDataset(BasePointBlockDataset):
                     "angles_of_incidence": angles_of_incidence,
                 }
 
-                
-
                 primary_inputs = LobRobDataset.concat_features(primary_input_names, feature_map)
 
                 if len(secondary_input_names) != 0:
