@@ -89,7 +89,7 @@ def weight_init(m):
 def train(args, io):
     device = torch.device("cuda")
 
-    model = models.__dict__[args.model](n_classes, args.num_points).to(device)
+    model = models.__dict__[args.model](n_classes, args.num_points, args.input_dim).to(device)
     model.apply(weight_init)
 
     # scaler = torch.amp.GradScaler("cuda") #UNUSED
@@ -186,7 +186,7 @@ def train(args, io):
     
     for epoch in range(args.epochs):
         train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io)
-        test_metrics, per_class_iou = test_epoch(val_loader, model, class_weights, epoch, io)
+        test_metrics, per_class_iou = test_epoch(args, val_loader, model, class_weights, epoch, io)
 
         if test_metrics['accuracy'] > best_acc:
 
@@ -290,7 +290,7 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
         opt.param_groups[0]['lr']))
 
 
-def test_epoch(val_loader, model, class_weights, epoch, io):
+def test_epoch(args, val_loader, model, class_weights, epoch, io):
     test_loss = 0.0
     count = 0.0
     accuracy = []
