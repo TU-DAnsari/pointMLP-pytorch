@@ -1,8 +1,8 @@
 model: pointMLPSmall
 exp_name: null
-primary_input: 
+sampling_input: 
 - points
-secondary_input: 
+model_input: 
 - ranges
 - intensities
 - angles_of_incidence

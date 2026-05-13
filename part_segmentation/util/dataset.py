@@ -8,8 +8,8 @@ from tqdm import tqdm
 class BasePointBlockDataset(Dataset):
     def __init__(self):
         self.point_blocks = None
-        self.primary_blocks = None
-        self.secondary_blocks = None
+        self.sampling_blocks = None
+        self.model_input_blocks = None
         self.label_blocks = None
         self.extra_blocks = None
 
@@ -35,8 +35,8 @@ class BasePointBlockDataset(Dataset):
 
     @staticmethod
     def data_to_blocks(points,
-                        primary_inputs, 
-                        secondary_inputs,
+                        sampling_inputs, 
+                        model_inputs,
                         labels,
                         extra_data,
                         num_points, 
@@ -66,26 +66,26 @@ class BasePointBlockDataset(Dataset):
             n_points_orig = points.shape[0]
 
             points_new = np.tile(points, (n_duplication, 1))
-            primary_inputs_new = np.tile(primary_inputs, (n_duplication, 1))
-            secondary_inputs_new = np.tile(secondary_inputs, (n_duplication, 1))
+            sampling_inputs_new = np.tile(sampling_inputs, (n_duplication, 1))
+            model_inputs_new = np.tile(model_inputs, (n_duplication, 1))
             labels_new = np.tile(labels, n_duplication)
             extra_data_new = np.tile(extra_data, (n_duplication, 1))
 
             for i in range(0, n_duplication * n_points_orig, n_points_orig):
-                translation = -pose_noise_range + (2 * pose_noise_range) * rng_pose.random(primary_inputs.shape[1])
-                points_new[i:i + n_points_orig] = primary_inputs + translation
-                primary_inputs_new[i:i + n_points_orig] = primary_inputs + translation
+                translation = -pose_noise_range + (2 * pose_noise_range) * rng_pose.random(sampling_inputs.shape[1])
+                points_new[i:i + n_points_orig] = sampling_inputs + translation
+                sampling_inputs_new[i:i + n_points_orig] = sampling_inputs + translation
 
             points = points_new
-            primary_inputs = primary_inputs_new
-            secondary_inputs = secondary_inputs_new
+            sampling_inputs = sampling_inputs_new
+            model_inputs = model_inputs_new
             labels = labels_new
             extra_data = extra_data_new
 
         if sensor_noise:
-            noise = rng_sensor.normal(0, sensor_noise_std, primary_inputs.shape)
+            noise = rng_sensor.normal(0, sensor_noise_std, sampling_inputs.shape)
             points += noise
-            primary_inputs += noise
+            sampling_inputs += noise
         
         if voxelize:
             pcd = o3d.geometry.PointCloud()
@@ -113,8 +113,8 @@ class BasePointBlockDataset(Dataset):
                     out[:, j] = np.bincount(vox_ids, weights=arr[pt_ids, j], minlength=n_voxels) / counts
                 return out
 
-            primary_inputs = grouped_mean(primary_inputs)
-            secondary_inputs = grouped_mean(secondary_inputs)
+            sampling_inputs = grouped_mean(sampling_inputs)
+            model_inputs = grouped_mean(model_inputs)
             extra_data = grouped_mean(extra_data)
 
             unique_labels, label_idx = np.unique(labels, return_inverse=True)
@@ -143,7 +143,7 @@ class BasePointBlockDataset(Dataset):
         xx, yy, zz = np.meshgrid(x_range, y_range, z_range)
         centers = np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
 
-        point_blocks, primary_blocks, secondary_blocks, label_blocks, extra_blocks = [], [], [], [], []
+        point_blocks, sampling_blocks, model_input_blocks, label_blocks, extra_blocks = [], [], [], [], []
 
         for center in centers:
             idx = tree.query_ball_point(center, r=block_size / 2)
@@ -154,22 +154,22 @@ class BasePointBlockDataset(Dataset):
             chosen = rng_sampling.choice(len(idx), num_points, replace=replace)
 
             points_in_block = points[idx][chosen]
-            primary_in_block = primary_inputs[idx][chosen]
-            secondary_in_block = secondary_inputs[idx][chosen]
+            sampling_in_block = sampling_inputs[idx][chosen]
+            model_input_in_block = model_inputs[idx][chosen]
             labels_in_block = labels[idx][chosen]
             extra_in_block = extra_data[idx][chosen]
             normals_in_block = normals[idx][chosen]
 
-            if normalize:
-                primary_in_block -= primary_in_block.mean(axis=0)
-                norm = np.max(np.linalg.norm(primary_in_block, axis=1))
-                if norm > 0: primary_in_block /= norm
+            # if normalize:
+            #     sampling_in_block -= sampling_in_block.mean(axis=0)
+            #     norm = np.max(np.linalg.norm(sampling_in_block, axis=1))
+            #     if norm > 0: sampling_in_block /= norm
 
-            secondary_in_block = np.concatenate([secondary_in_block, normals_in_block], axis=1)
+            model_input_in_block = np.concatenate([model_input_in_block, normals_in_block], axis=1)
 
             point_blocks.append(points_in_block)
-            primary_blocks.append(primary_in_block)
-            secondary_blocks.append(secondary_in_block)
+            sampling_blocks.append(sampling_in_block)
+            model_input_blocks.append(model_input_in_block)
             label_blocks.append(labels_in_block)
             extra_blocks.append(extra_in_block)
 
@@ -178,8 +178,8 @@ class BasePointBlockDataset(Dataset):
 
         return (
             np.stack(point_blocks),
-            np.stack(primary_blocks),
-            np.stack(secondary_blocks),                          
+            np.stack(sampling_blocks),
+            np.stack(model_input_blocks),                          
             np.stack(label_blocks),
             np.stack(extra_blocks),
         )

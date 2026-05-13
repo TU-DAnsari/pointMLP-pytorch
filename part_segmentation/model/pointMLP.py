@@ -334,6 +334,7 @@ class PointMLP(nn.Module):
                  k_neighbors=[32, 32, 32, 32], reducers=[4, 4, 4, 4],
                  de_dims=[512, 256, 128, 128], de_blocks=[2, 2, 2, 2],
                  gmp_dim=64, **kwargs):
+        
         super(PointMLP, self).__init__()
         self.stages = len(pre_blocks)
         self.class_num = num_classes
@@ -394,11 +395,10 @@ class PointMLP(nn.Module):
         )
         self.en_dims = en_dims
 
-    def forward(self, x, normals):
+    def forward(self, sampling_input, model_input):
         # x: (B, 3, N)
-        xyz = x.permute(0, 2, 1)       # (B, N, 3)
-        x = torch.cat([x, normals], dim=1)
-        x = self.embedding(x)          # (B, embed_dim, N)
+        xyz = sampling_input.permute(0, 2, 1)       
+        x = self.embedding(model_input)
 
         xyz_list = [xyz]
         x_list = [x]

@@ -37,8 +37,8 @@ def main():
     if args.exp_name is None:
         args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
 
-    if args.secondary_input is None:
-        args.secondary_input = []
+    if args.model_input is None:
+        args.model_input = []
         
     _init_(args=args)
 
@@ -92,32 +92,11 @@ def weight_init(m):
 def train(args, io):
     device = torch.device("cuda")
 
-    model = models.__dict__[args.model](n_classes, args.num_points, args.input_dim).to(device)
-    model.apply(weight_init)
-
-    # scaler = torch.amp.GradScaler("cuda") #UNUSED
-
-    io.cprint(str(model))
-
-    if args.resume:
-        state_dict = torch.load(f"checkpoints/{args.exp_name}/best_insiou_model.pth", weights_only=False, map_location='cpu')['model']
-        state_dict = {
-            k.replace("module.", "", 1).replace("_orig_mod.", "", 1): v
-            for k, v in state_dict.items()
-        }
-        model.load_state_dict(state_dict)
-        print("Resuming training...")
-    else:
-        print("Training from scratch...")
-
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Trainable parameters: {trainable_params}")
-
     # model = torch.compile(model)
     
     train_data = DATASET_CLASS(DATA_PATH,
-                            primary_input_names=args.primary_input,
-                            secondary_input_names=args.secondary_input,
+                            sampling_input_names=args.sampling_input,
+                            model_input_names=args.model_input,
                             split="train", 
                             num_points=args.num_points,
                             block_size=args.block_size,
@@ -135,8 +114,8 @@ def train(args, io):
                             )
     
     val_data = DATASET_CLASS(DATA_PATH, 
-                            primary_input_names=args.primary_input,
-                            secondary_input_names=args.secondary_input,
+                            sampling_input_names=args.sampling_input,
+                            model_input_names=args.model_input,
                             split="val", 
                             num_points=args.num_points,
                             block_size=args.block_size,
@@ -171,6 +150,28 @@ def train(args, io):
                               drop_last=False,
                               pin_memory=True, 
                               persistent_workers=True)
+    
+    input_dim = train_data.model_input_blocks.shape[-1]
+
+    model = models.__dict__[args.model](n_classes, args.num_points, input_dim).to(device)
+    model.apply(weight_init)
+
+    io.cprint(str(model))
+
+    if args.resume:
+        state_dict = torch.load(f"checkpoints/{args.exp_name}/best_insiou_model.pth", weights_only=False, map_location='cpu')['model']
+        state_dict = {
+            k.replace("module.", "", 1).replace("_orig_mod.", "", 1): v
+            for k, v in state_dict.items()
+        }
+        model.load_state_dict(state_dict)
+        print("Resuming training...")
+    else:
+        print("Training from scratch...")
+
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters: {trainable_params}")
+
 
     if args.use_sgd:
         opt = optim.SGD(model.parameters(), lr=args.lr * 100, momentum=args.momentum, weight_decay=0)
@@ -242,28 +243,28 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
     for _, primary_batch, secondary_batch, label_batch, _ in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         batch_size, num_point, _ = primary_batch.size()
 
-        primary_input = primary_batch.float().permute(0, 2, 1)
+        sampling_input = primary_batch.float().permute(0, 2, 1)
 
-        if len(args.secondary_input) == 0 and args.use_normals:
-            secondary_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
-        if len(args.secondary_input) == 0 and not args.use_normals:
-            secondary_input = primary_batch.float().permute(0, 2, 1)
-        if len(args.secondary_input) != 0 and args.use_normals:
-            secondary_input = secondary_batch.float().permute(0, 2, 1)
-        if len(args.secondary_input) != 0 and not args.use_normals:
+        if len(args.model_input) == 0 and args.use_normals:
+            model_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
+        if len(args.model_input) == 0 and not args.use_normals:
+            model_input = primary_batch.float().permute(0, 2, 1)
+        if len(args.model_input) != 0 and args.use_normals:
+            model_input = secondary_batch.float().permute(0, 2, 1)
+        if len(args.model_input) != 0 and not args.use_normals:
             raise NotImplementedError("Should not be using this configuration")
         
         labels = label_batch.long()
 
-        primary_input = primary_input.cuda(non_blocking=True)
-        secondary_input = secondary_input.cuda(non_blocking=True) 
+        sampling_input = sampling_input.cuda(non_blocking=True)
+        model_input = model_input.cuda(non_blocking=True) 
         labels = labels.cuda(non_blocking=True)
 
         opt.zero_grad(set_to_none=True)
 
         # with torch.amp.autocast("cuda"):
 
-        seg_pred = model(primary_input, secondary_input)     
+        seg_pred = model(sampling_input, model_input)     
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
         loss = F.nll_loss(seg_pred_flat, labels.view(-1), class_weights)
@@ -319,26 +320,26 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
         for _, primary_batch, secondary_batch, label_batch, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = primary_batch.size()
 
-            primary_input = primary_batch.float().permute(0, 2, 1)
+            sampling_input = primary_batch.float().permute(0, 2, 1)
 
-            if len(args.secondary_input) == 0 and args.use_normals:
-                secondary_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
-            if len(args.secondary_input) == 0 and not args.use_normals:
-                secondary_input = primary_batch.float().permute(0, 2, 1)
-            if len(args.secondary_input) != 0 and args.use_normals:
-                secondary_input = secondary_batch.float().permute(0, 2, 1)
-            if len(args.secondary_input) != 0 and not args.use_normals:
+            if len(args.model_input) == 0 and args.use_normals:
+                model_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
+            if len(args.model_input) == 0 and not args.use_normals:
+                model_input = primary_batch.float().permute(0, 2, 1)
+            if len(args.model_input) != 0 and args.use_normals:
+                model_input = secondary_batch.float().permute(0, 2, 1)
+            if len(args.model_input) != 0 and not args.use_normals:
                 raise NotImplementedError("Should not be using this configuration")
             
             labels = label_batch.long()
 
-            primary_input = primary_input.cuda(non_blocking=True)
-            secondary_input = secondary_input.cuda(non_blocking=True) 
+            sampling_input = sampling_input.cuda(non_blocking=True)
+            model_input = model_input.cuda(non_blocking=True) 
             labels = labels.cuda(non_blocking=True)
 
             # with torch.amp.autocast("cuda"):
 
-            seg_pred = model(primary_input, secondary_input)         
+            seg_pred = model(sampling_input, model_input)         
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
 
             # per-class iou
@@ -384,8 +385,8 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
 
 def test(args, io):
     val_data = DATASET_CLASS(DATA_PATH, 
-                            primary_input_names=args.primary_input,
-                            secondary_input_names=args.secondary_input,
+                            sampling_input_names=args.sampling_input,
+                            model_input_names=args.model_input,
                             split="val", 
                             num_points=args.num_points,
                             block_size=args.block_size,
@@ -433,24 +434,24 @@ def test(args, io):
         for _, primary_batch, secondary_batch, label_batch, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = primary_batch.size()
 
-            primary_input = primary_batch.float().permute(0, 2, 1)
+            sampling_input = primary_batch.float().permute(0, 2, 1)
 
-            if len(args.secondary_input) == 0 and args.use_normals:
-                secondary_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
-            if len(args.secondary_input) == 0 and not args.use_normals:
-                secondary_input = primary_batch.float().permute(0, 2, 1)
-            if len(args.secondary_input) != 0 and args.use_normals:
-                secondary_input = secondary_batch.float().permute(0, 2, 1)
-            if len(args.secondary_input) != 0 and not args.use_normals:
+            if len(args.model_input) == 0 and args.use_normals:
+                model_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
+            if len(args.model_input) == 0 and not args.use_normals:
+                model_input = primary_batch.float().permute(0, 2, 1)
+            if len(args.model_input) != 0 and args.use_normals:
+                model_input = secondary_batch.float().permute(0, 2, 1)
+            if len(args.model_input) != 0 and not args.use_normals:
                 raise NotImplementedError("Should not be using this configuration")
             
             labels = label_batch.long()
 
-            primary_input = primary_input.cuda(non_blocking=True)
-            secondary_input = secondary_input.cuda(non_blocking=True) 
+            sampling_input = sampling_input.cuda(non_blocking=True)
+            model_input = model_input.cuda(non_blocking=True) 
             labels = labels.cuda(non_blocking=True)
 
-            seg_pred = model(primary_input, secondary_input)
+            seg_pred = model(sampling_input, model_input)
             batch_shapeious = compute_overall_iou(seg_pred, labels, n_classes)
             shape_ious += batch_shapeious
 
