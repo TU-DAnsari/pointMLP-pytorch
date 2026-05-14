@@ -38,17 +38,21 @@ class LobRobDataset(BasePointBlockDataset):
 
                 points = np.asarray(grp["points"], dtype=np.float32)
                 labels = np.asarray(grp["labels"], dtype=np.int64)
-                ranges = self.normalize(data=np.asarray(grp["ranges"]), max_bound=15.0, min_bound=0.0)
-                intensities = self.normalize(data=np.asarray(grp["intensities"]), max_bound=255.0, min_bound=0.0)
-                angles_of_incidence = np.asarray(grp["angles_of_incidence"])
 
-                points_norm = points - points.mean(axis=0)
-                norm = np.max(np.linalg.norm(points_norm, axis=1))
-                if norm > 0: 
-                    points_norm /= norm
+                ranges = np.asarray(grp["ranges"], dtype=np.float32)
+                intensities = np.asarray(grp["intensities"], dtype=np.float32)
+                angles_of_incidence = np.asarray(grp["angles_of_incidence"], dtype=np.float32)
+
+                # points_norm = points - points.mean(axis=0)
+                # norm = np.max(np.linalg.norm(points_norm, axis=1))
+                # if norm > 0: 
+                #     points_norm /= norm
+
+                # ranges_norm = self.normalize(data=np.asarray(grp["ranges"]), max_bound=ranges.max(), min_bound=0.0)
+                # intensities_norm = self.normalize(data=np.asarray(grp["intensities"]), max_bound=255.0, min_bound=0.0)
 
                 feature_map = {
-                    "points": points_norm,
+                    "points": points,
                     "ranges": ranges,
                     "intensities": intensities,
                     "angles_of_incidence": angles_of_incidence,

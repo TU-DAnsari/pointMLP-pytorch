@@ -165,6 +165,12 @@ class BasePointBlockDataset(Dataset):
             #     norm = np.max(np.linalg.norm(sampling_in_block, axis=1))
             #     if norm > 0: sampling_in_block /= norm
 
+            if normalize:
+                for i in range(model_input_in_block.shape[1]):
+                    model_input_in_block[:, i] = BasePointBlockDataset.normalize(data=model_input_in_block[:, i], 
+                                                                                 max_bound=model_input_in_block[:, i].max(), 
+                                                                                 min_bound=model_input_in_block[:, i].min())
+
             model_input_in_block = np.concatenate([model_input_in_block, normals_in_block], axis=1)
 
             point_blocks.append(points_in_block)
@@ -184,7 +190,8 @@ class BasePointBlockDataset(Dataset):
             np.stack(extra_blocks),
         )
     
-    def normalize(self, data, max_bound, min_bound):
+    @staticmethod
+    def normalize(data, max_bound, min_bound):
         return (data - min_bound) / (max_bound - min_bound)
 
     def __len__(self):
