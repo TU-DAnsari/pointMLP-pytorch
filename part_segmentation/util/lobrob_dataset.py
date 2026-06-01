@@ -48,8 +48,8 @@ class LobRobDataset(BasePointBlockDataset):
                 # if norm > 0: 
                 #     points_norm /= norm
 
-                # ranges_norm = self.normalize(data=np.asarray(grp["ranges"]), max_bound=ranges.max(), min_bound=0.0)
-                # intensities_norm = self.normalize(data=np.asarray(grp["intensities"]), max_bound=255.0, min_bound=0.0)
+                ranges = self.normalize(data=np.asarray(grp["ranges"]), max_bound=15.0, min_bound=0.0)
+                intensities = self.normalize(data=np.asarray(grp["intensities"]), max_bound=255.0, min_bound=0.0)
 
                 feature_map = {
                     "points": points,

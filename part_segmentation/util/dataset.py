@@ -170,6 +170,11 @@ class BasePointBlockDataset(Dataset):
                     model_input_in_block[:, i] = BasePointBlockDataset.normalize(data=model_input_in_block[:, i], 
                                                                                  max_bound=model_input_in_block[:, i].max(), 
                                                                                  min_bound=model_input_in_block[:, i].min())
+            else:
+                for i in range(model_input_in_block.shape[1]):
+                    model_input_in_block[:, i] = BasePointBlockDataset.normalize(data=model_input_in_block[:, i], 
+                                                                                 max_bound=1.0, 
+                                                                                 min_bound=0.0)
 
             model_input_in_block = np.concatenate([model_input_in_block, normals_in_block], axis=1)
 
@@ -192,6 +197,10 @@ class BasePointBlockDataset(Dataset):
     
     @staticmethod
     def normalize(data, max_bound, min_bound):
+        if data.max() > max_bound:
+            max_bound = data.max()
+        if data.min() < min_bound:
+            min_bound = data.min()
         return (data - min_bound) / (max_bound - min_bound)
 
     def __len__(self):
