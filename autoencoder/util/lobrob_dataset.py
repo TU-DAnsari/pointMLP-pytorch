@@ -35,5 +35,8 @@ class LobRobDataset():
         self.sources = np.array(sources)
         self.targets = np.array(targets)
 
+    def __len__(self):
+        return len(self.sources)
+
     def __getitem__(self, idx):
         return self.sources[idx], self.targets[idx]

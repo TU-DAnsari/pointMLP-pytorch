@@ -1,0 +1,16 @@
+model: pointMLPSmallAutoEncoder
+exp_name: null
+num_points: 1024
+batch_size: 64
+test_batch_size: 64
+epochs: 100
+use_sgd: false
+scheduler: step
+step: 40
+lr: 0.003
+momentum: 0.9
+manual_seed: null
+eval: false
+workers: 12
+resume: false
+model_type: insiou

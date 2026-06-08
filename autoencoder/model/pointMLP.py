@@ -438,7 +438,7 @@ class PointMLPAutoEncoder(nn.Module):
 # Factory function (mirrors pointMLPSmall signature)
 # ---------------------------------------------------------------------------
 
-def pointMLPSmallAutoEncoder(num_points=1024, input_dim=6, **kwargs) -> PointMLPAutoEncoder:
+def pointMLPSmallAutoEncoder(num_points=1024, input_dim=3, **kwargs) -> PointMLPAutoEncoder:
     """
     Drop-in replacement for pointMLPSmall, repurposed as an autoencoder.
 
