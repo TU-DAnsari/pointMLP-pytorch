@@ -29,9 +29,6 @@ def main():
 
     if args.exp_name is None:
         args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
-
-    if args.model_input is None:
-        args.model_input = []
         
     _init_(args=args)
 
@@ -112,7 +109,7 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model](len(train_data[0])).to(device)
+    model = models.__dict__[args.model](len(train_data[0][0])).to(device)
     model.apply(weight_init)
 
     io.cprint(str(model))
@@ -180,9 +177,9 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
     for points_partial, points_proxy, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         batch_size, num_point, _ = points_partial.size()
 
-        points_partial = points_partial.float().permute(0, 2, 1)
-        points_proxy = points_proxy.float().permute(0, 2, 1)     
-        labels = labels.float()
+        points_partial = points_partial.float().permute(0, 2, 1).cuda(non_blocking=True)
+        points_proxy = points_proxy.float().permute(0, 2, 1).cuda(non_blocking=True)
+        labels = labels.float().cuda(non_blocking=True)
 
         opt.zero_grad(set_to_none=True)
 
@@ -234,9 +231,9 @@ def test_epoch(args, val_loader, model, epoch, io):
         for points_partial, points_proxy, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = points_partial.size()
 
-            points_partial = points_partial.float().permute(0, 2, 1)
-            points_proxy = points_proxy.float().permute(0, 2, 1)     
-            labels = labels.float()
+            points_partial = points_partial.float().permute(0, 2, 1).cuda(non_blocking=True)
+            points_proxy = points_proxy.float().permute(0, 2, 1).cuda(non_blocking=True)
+            labels = labels.float().cuda(non_blocking=True)
 
             occ_pred = model(points_partial, points_proxy)     
 

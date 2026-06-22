@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import yaml
 from types import SimpleNamespace
 import argparse
-import pyoctomap
 
 def parse_args():
     # Step 1: get the config file path (and any CLI overrides)
@@ -106,24 +105,3 @@ def compute_class_weights(labels, n_classes, device):
     weights = 1.0 / (class_counts + 1e-6)
     weights = weights / weights.sum() * n_classes  # normalize
     return torch.tensor(weights, dtype=torch.float32).to(device)
-
-def surface_from_sample(octree: pyoctomap.ColorOcTree, pos, query_points):
-    surface_points = []
-    for point in query_points:
-        direction = point - pos
-        d = np.linalg.norm(direction)
-
-        if d < 0.01: continue
-
-        u = direction / d
-
-        end = np.zeros(3, dtype=np.float64)
-
-        hit = octree.castRay(
-            pos, u, end, ignoreUnknownCells=True, maxRange=d
-        )
-
-        if hit and end is not None:
-            surface_points.append(tuple(end))
-
-    return surface_points

@@ -108,6 +108,7 @@ class LocalGrouper(nn.Module):
             [grouped_points, new_points.view(B, S, 1, -1).repeat(1, 1, self.kneighbors, 1)],
             dim=-1
         )
+
         return new_xyz, new_points
 
 
@@ -381,7 +382,7 @@ class PointMLPOccupancy(nn.Module):
         """
         # ── Encode surface geometry ──────────────────────────────────────────
         # xyz used for spatial operations, x for feature learning
-        xyz = surface_pts[:, :3, :].permute(0, 2, 1)   # [B, N, 3]
+        xyz = surface_pts.permute(0, 2, 1)   # [B, N, 3]
         x   = self.embedding(surface_pts)               # [B, embed_dim, N]
 
         xyz_list = [xyz]
@@ -413,9 +414,9 @@ class PointMLPOccupancy(nn.Module):
         )                                          # [B, embed_dim, Q]
 
         # ── Concatenate global context and classify ──────────────────────────
-        Q       = q_feats.shape[-1]
+        Q = q_feats.shape[-1]
         ctx_exp = global_ctx.expand(-1, -1, Q)    # [B, gmp_dim, Q]
-        x_out   = torch.cat([q_feats, ctx_exp], dim=1)
+        x_out = torch.cat([q_feats, ctx_exp], dim=1)
 
         logits = self.occ_head(x_out)              # [B, Q]
         return logits
@@ -474,6 +475,7 @@ def pointMLPOccupancy(num_points=1024, input_dim=3, **kwargs) -> PointMLPOccupan
         reducers=[4, 4, 4],
         query_k=8,
         gmp_dim=64,
+        use_xyz=False,
         occ_hidden=128,
         **kwargs,
     )
@@ -488,10 +490,11 @@ def pointMLPOccupancySmall(num_points=1024, input_dim=3, **kwargs) -> PointMLPOc
         dim_expansion=[2, 2],
         pre_blocks=[2, 2],
         pos_blocks=[2, 2],
-        k_neighbors=[24, 24],
-        reducers=[4, 4],
-        query_k=8,
+        k_neighbors=[16, 16],
+        reducers=[2, 2],
+        query_k=2,
         gmp_dim=32,
+        use_xyz=False,
         occ_hidden=64,
         **kwargs,
     )
