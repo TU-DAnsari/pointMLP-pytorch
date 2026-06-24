@@ -324,31 +324,56 @@ class PointNetFeaturePropagation(nn.Module):
         new_points = self.extraction(new_points)
         return new_points
 
-class PointMLP(nn.Module):
-    def __init__(self, num_classes=2, points=2048, input_dim=6, embed_dim=64, groups=1, res_expansion=1.0,
+class PointMLPEncoder(nn.Module):
+    """
+    Hierarchical feature encoder — no segmentation head.
+
+    Returns
+    -------
+    encoder_out : dict with keys
+        "x_list"   – list of per-stage feature tensors  [x_list[i]: (B, C_i, N_i)]
+                     index 0 = input embedding, last index = bottleneck
+        "xyz_list" – matching list of coordinate tensors [xyz_list[i]: (B, N_i, 3)]
+        "global"   – global context vector               (B, gmp_dim, 1)
+
+    Typical usage after training
+    ----------------------------
+        enc = PointMLPEncoder(...)
+        out = enc(sampling_input, model_input)
+
+        # per-point features at each scale
+        fine_features    = out["x_list"][0]   # (B, embed_dim, N)
+        coarse_features  = out["x_list"][-1]  # (B, C_last,   N_last)
+
+        # global descriptor (e.g. for shape-level tasks)
+        global_vec = out["global"]             # (B, gmp_dim, 1)
+    """
+
+    def __init__(self, points=2048, input_dim=6, embed_dim=64, groups=1, res_expansion=1.0,
                  activation="relu", bias=True, use_xyz=True, normalize="anchor",
                  dim_expansion=[2, 2, 2, 2], pre_blocks=[2, 2, 2, 2], pos_blocks=[2, 2, 2, 2],
                  k_neighbors=[32, 32, 32, 32], reducers=[4, 4, 4, 4],
-                 de_dims=[512, 256, 128, 128], de_blocks=[2, 2, 2, 2],
                  gmp_dim=64, **kwargs):
-        
-        super(PointMLP, self).__init__()
+        super(PointMLPEncoder, self).__init__()
+
         self.stages = len(pre_blocks)
-        self.class_num = num_classes
         self.points = points
-        self.embedding = ConvBNReLU1D(input_dim, embed_dim, bias=bias, activation=activation) # x y z nx ny nz
+        self.embedding = ConvBNReLU1D(input_dim, embed_dim, bias=bias, activation=activation)
+
         assert len(pre_blocks) == len(k_neighbors) == len(reducers) == len(pos_blocks) == len(dim_expansion)
 
         self.local_grouper_list = nn.ModuleList()
-        self.pre_blocks_list = nn.ModuleList()
-        self.pos_blocks_list = nn.ModuleList()
-        last_channel = embed_dim
+        self.pre_blocks_list    = nn.ModuleList()
+        self.pos_blocks_list    = nn.ModuleList()
+
+        last_channel  = embed_dim
         anchor_points = self.points
-        en_dims = [last_channel]
+        en_dims       = [last_channel]
 
         for i in range(len(pre_blocks)):
-            out_channel = last_channel * dim_expansion[i]
+            out_channel   = last_channel * dim_expansion[i]
             anchor_points = anchor_points // reducers[i]
+
             self.local_grouper_list.append(
                 LocalGrouper(last_channel, anchor_points, k_neighbors[i], use_xyz, normalize)
             )
@@ -363,42 +388,28 @@ class PointMLP(nn.Module):
             last_channel = out_channel
             en_dims.append(last_channel)
 
-        ### Decoder ###
-        self.decode_list = nn.ModuleList()
-        en_dims.reverse()
-        de_dims.insert(0, en_dims[0])
-        assert len(en_dims) == len(de_dims) == len(de_blocks) + 1
-        for i in range(len(en_dims) - 1):
-            self.decode_list.append(
-                PointNetFeaturePropagation(de_dims[i] + en_dims[i + 1], de_dims[i + 1],
-                                          blocks=de_blocks[i], groups=groups,
-                                          res_expansion=res_expansion, bias=bias, activation=activation)
-            )
-
-        self.act = get_activation(activation)
-
-        # global max pooling mapping — no cls_map branch
+        # global max pooling across all scales
         self.gmp_map_list = nn.ModuleList()
         for en_dim in en_dims:
             self.gmp_map_list.append(ConvBNReLU1D(en_dim, gmp_dim, bias=bias, activation=activation))
         self.gmp_map_end = ConvBNReLU1D(gmp_dim * len(en_dims), gmp_dim, bias=bias, activation=activation)
 
-        # classifier — gmp_dim + de_dims[-1], no cls_dim
-        self.classifier = nn.Sequential(
-            nn.Conv1d(gmp_dim + de_dims[-1], 128, 1, bias=bias),
-            nn.BatchNorm1d(128),
-            nn.Dropout(),
-            nn.Conv1d(128, num_classes, 1, bias=bias)
-        )
+        # expose for downstream use
         self.en_dims = en_dims
+        self.gmp_dim = gmp_dim
 
     def forward(self, sampling_input, model_input):
-        # x: (B, 3, N)
-        xyz = sampling_input.permute(0, 2, 1)       
-        x = self.embedding(model_input)
+        """
+        Parameters
+        ----------
+        sampling_input : (B, 3, N)  – xyz coordinates used for FPS
+        model_input    : (B, C, N)  – full per-point features (e.g. xyz + normals)
+        """
+        xyz = sampling_input.permute(0, 2, 1)   # (B, N, 3)
+        x   = self.embedding(model_input)        # (B, embed_dim, N)
 
         xyz_list = [xyz]
-        x_list = [x]
+        x_list   = [x]
 
         for i in range(self.stages):
             xyz, x = self.local_grouper_list[i](xyz, x.permute(0, 2, 1))
@@ -407,32 +418,162 @@ class PointMLP(nn.Module):
             xyz_list.append(xyz)
             x_list.append(x)
 
-        xyz_list.reverse()
-        x_list.reverse()
-        x = x_list[0]
-        for i in range(len(self.decode_list)):
-            x = self.decode_list[i](xyz_list[i + 1], xyz_list[i], x_list[i + 1], x)
-
-        # global context
+        # multi-scale global context
         gmp_list = []
         for i in range(len(x_list)):
             gmp_list.append(F.adaptive_max_pool1d(self.gmp_map_list[i](x_list[i]), 1))
         global_context = self.gmp_map_end(torch.cat(gmp_list, dim=1))  # (B, gmp_dim, 1)
 
+        return {
+            "x_list":   x_list,    # list[(B, C_i, N_i)]
+            "xyz_list": xyz_list,  # list[(B, N_i, 3)]
+            "global":   global_context,  # (B, gmp_dim, 1)
+        }
+    
+class PointMLPSegHead(nn.Module):
+    """
+    Segmentation head that consumes the encoder's output dict and
+    produces per-point class log-probabilities.
+
+    Parameters
+    ----------
+    en_dims   : list of encoder channel widths, e.g. [64, 128, 256, 512, 1024]
+    gmp_dim   : global context dimension from the encoder
+    de_dims   : decoder output channels at each upsampling stage
+    de_blocks : number of residual blocks in each decoder stage
+    num_classes : number of segmentation classes
+    """
+
+    def __init__(self, en_dims, gmp_dim, de_dims=[512, 256, 128, 128], de_blocks=[2, 2, 2, 2],
+                 num_classes=2, groups=1, res_expansion=1.0, bias=True, activation="relu"):
+        super(PointMLPSegHead, self).__init__()
+
+        self.act = get_activation(activation)
+
+        # decoder: iterates from coarsest → finest
+        en_dims_dec = list(reversed(en_dims))     # coarse-to-fine order
+        de_dims_dec = [en_dims_dec[0]] + list(de_dims)
+
+        assert len(en_dims_dec) == len(de_dims_dec) == len(de_blocks) + 1
+
+        self.decode_list = nn.ModuleList()
+        for i in range(len(en_dims_dec) - 1):
+            self.decode_list.append(
+                PointNetFeaturePropagation(
+                    de_dims_dec[i] + en_dims_dec[i + 1], de_dims_dec[i + 1],
+                    blocks=de_blocks[i], groups=groups,
+                    res_expansion=res_expansion, bias=bias, activation=activation
+                )
+            )
+
+        # final per-point classifier
+        self.classifier = nn.Sequential(
+            nn.Conv1d(gmp_dim + de_dims_dec[-1], 128, 1, bias=bias),
+            nn.BatchNorm1d(128),
+            nn.Dropout(),
+            nn.Conv1d(128, num_classes, 1, bias=bias)
+        )
+
+    def decode(self, encoder_out):
+        """
+        Run the decoder only — interpolates coarse features back to all N
+        original points and concatenates the global context, but stops
+        before the classification conv.
+
+        Parameters
+        ----------
+        encoder_out : dict returned by PointMLPEncoder.forward()
+
+        Returns
+        -------
+        x : (B, gmp_dim + de_dims[-1], N)
+            Dense per-point feature tensor at the original point resolution.
+            Ready to be fed into a custom head, similarity metric, etc.
+        """
+        x_list         = list(reversed(encoder_out["x_list"]))
+        xyz_list       = list(reversed(encoder_out["xyz_list"]))
+        global_context = encoder_out["global"]
+
+        x = x_list[0]
+        for i in range(len(self.decode_list)):
+            x = self.decode_list[i](xyz_list[i + 1], xyz_list[i], x_list[i + 1], x)
+
+        # append global context to every point
         x = torch.cat([x, global_context.repeat([1, 1, x.shape[-1]])], dim=1)
+        return x   # (B, gmp_dim + de_dims[-1], N)
+
+    def forward(self, encoder_out):
+        """
+        Full forward pass: decode + classify.
+
+        Parameters
+        ----------
+        encoder_out : dict returned by PointMLPEncoder.forward()
+
+        Returns
+        -------
+        (B, N, num_classes) log-softmax scores
+        """
+        x = self.decode(encoder_out)
         x = self.classifier(x)
         x = F.log_softmax(x, dim=1)
-        x = x.permute(0, 2, 1)        # (B, N, num_classes)
+        x = x.permute(0, 2, 1)   # (B, N, num_classes)
         return x
+
+class PointMLP(nn.Module):
+    """
+    Full PointMLP model combining encoder and segmentation head.
+    Use this during training. After training, load weights and
+    use PointMLPEncoder or PointMLPSegHead independently.
+    """
+
+    def __init__(self, num_classes=2, points=2048, input_dim=6, embed_dim=64, groups=1, res_expansion=1.0,
+                 activation="relu", bias=True, use_xyz=True, normalize="anchor",
+                 dim_expansion=[2, 2, 2, 2], pre_blocks=[2, 2, 2, 2], pos_blocks=[2, 2, 2, 2],
+                 k_neighbors=[32, 32, 32, 32], reducers=[4, 4, 4, 4],
+                 de_dims=[512, 256, 128, 128], de_blocks=[2, 2, 2, 2],
+                 gmp_dim=64, **kwargs):
+        super(PointMLP, self).__init__()
+
+        self.encoder = PointMLPEncoder(
+            points=points, input_dim=input_dim, embed_dim=embed_dim, groups=groups,
+            res_expansion=res_expansion, activation=activation, bias=bias,
+            use_xyz=use_xyz, normalize=normalize, dim_expansion=dim_expansion,
+            pre_blocks=pre_blocks, pos_blocks=pos_blocks, k_neighbors=k_neighbors,
+            reducers=reducers, gmp_dim=gmp_dim,
+        )
+
+        self.seg_head = PointMLPSegHead(
+            en_dims=self.encoder.en_dims, gmp_dim=gmp_dim,
+            de_dims=de_dims, de_blocks=de_blocks,
+            num_classes=num_classes, groups=groups,
+            res_expansion=res_expansion, bias=bias, activation=activation,
+        )
+
+    def forward(self, sampling_input, model_input):
+        encoder_out = self.encoder(sampling_input, model_input)
+        return self.seg_head(encoder_out)
 
 
 def pointMLP(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
-    return PointMLP(num_classes=num_classes, points=num_points, embed_dim=64, groups=1, res_expansion=1.0,
-                    activation="relu", bias=True, use_xyz=True, normalize="anchor",
-                    dim_expansion=[2, 2, 2, 2], pre_blocks=[2, 2, 2, 2], pos_blocks=[2, 2, 2, 2],
-                    k_neighbors=[32, 32, 32, 32], reducers=[4, 4, 4, 4],
-                    de_dims=[512, 256, 128, 128], de_blocks=[4, 4, 4, 4],
-                    gmp_dim=64, **kwargs)
+    return PointMLP(num_classes=num_classes, 
+                    points=num_points, 
+                    input_dim=6,
+                    embed_dim=64, 
+                    groups=1, 
+                    res_expansion=1.0,
+                    activation="relu", 
+                    bias=True, use_xyz=True, 
+                    normalize="anchor",
+                    dim_expansion=[2, 2, 2, 2], 
+                    pre_blocks=[2, 2, 2, 2], 
+                    pos_blocks=[2, 2, 2, 2],
+                    k_neighbors=[32, 32, 32, 32], 
+                    reducers=[4, 4, 4, 4],
+                    de_dims=[512, 256, 128, 128], 
+                    de_blocks=[4, 4, 4, 4],
+                    gmp_dim=64, 
+                    **kwargs)
 
 def pointMLPSmall(num_classes=2, num_points=1024, input_dim=6, **kwargs) -> PointMLP:
     return PointMLP(num_classes=num_classes, 
@@ -443,7 +584,7 @@ def pointMLPSmall(num_classes=2, num_points=1024, input_dim=6, **kwargs) -> Poin
                     res_expansion=1.0,
                     activation="relu", 
                     bias=True, 
-                    use_xyz=True, 
+                    use_xyz=False, 
                     normalize="anchor",
                     dim_expansion=[2, 2], 
                     pre_blocks=[2, 2], 
