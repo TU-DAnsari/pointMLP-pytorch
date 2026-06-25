@@ -4,6 +4,7 @@ from tqdm import tqdm
 from .dataset import BasePointBlockDataset
 from scipy.spatial import KDTree
 import open3d as o3d
+from .octomap_handler import OctomapHandler
 
 class S3DISDataset(BasePointBlockDataset):
     def __init__(self, 
@@ -51,6 +52,70 @@ class S3DISDataset(BasePointBlockDataset):
         self.feature_blocks = np.concatenate(self.feature_blocks, axis=0)
         self.label_blocks = np.concatenate(self.label_blocks, axis=0)
 
+<<<<<<< Updated upstream
+=======
+    def data_to_blocks_2(self, 
+                       points, 
+                       labels,
+                       num_points,
+                       min_points,
+                       block_size,
+                       stride,
+                       normalize,
+                       seed):
+        
+        
+        rng_sampling = np.random.default_rng(seed=seed)
+
+        tree = KDTree(points)
+
+        mins, maxes = tree.mins, tree.maxes
+        x_range = np.arange(mins[0], maxes[0], stride)
+        y_range = np.arange(mins[1], maxes[1], stride)
+        z_range = np.arange(mins[2], maxes[2], stride)
+        xx, yy, zz = np.meshgrid(x_range, y_range, z_range)
+        centers = np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
+
+        point_blocks = []
+        feature_blocks = []
+        label_blocks = []
+
+        print("centers: ", centers.shape)
+
+        for center in centers:
+            idx = tree.query_ball_point(center, r=block_size/2)
+            if len(idx) < min_points:
+                continue
+
+            replace = len(idx) < num_points
+            chosen = rng_sampling.choice(len(idx), num_points, replace=replace)
+
+            points_in_block = points[idx][chosen]
+            labels_in_block = labels[idx][chosen]
+
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points_in_block)
+            pcd.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+            )
+            pcd_center = pcd.get_center()
+            pcd.orient_normals_towards_camera_location(camera_location=pcd_center)
+
+            normals_in_block = np.asarray(pcd.normals)
+
+            if normalize:
+                features_in_block = np.concatenate([self.normalize_xyz(points_in_block), normals_in_block], axis=1)
+            else:
+                features_in_block = np.concatenate([points_in_block, normals_in_block], axis=1)
+
+
+            point_blocks.append(points_in_block)
+            feature_blocks.append(features_in_block)
+            label_blocks.append(labels_in_block)
+
+        return point_blocks, feature_blocks, label_blocks
+
+>>>>>>> Stashed changes
     def data_to_blocks(self, 
                        points, 
                        labels,
