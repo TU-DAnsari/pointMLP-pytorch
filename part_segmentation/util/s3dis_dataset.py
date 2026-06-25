@@ -51,8 +51,6 @@ class S3DISDataset(BasePointBlockDataset):
         self.feature_blocks = np.concatenate(self.feature_blocks, axis=0)
         self.label_blocks = np.concatenate(self.label_blocks, axis=0)
 
-
-
     def data_to_blocks(self, 
                        points, 
                        labels,
@@ -102,7 +100,7 @@ class S3DISDataset(BasePointBlockDataset):
 
             normals_in_block = np.asarray(pcd.normals)
 
-            if self.normalize:
+            if normalize:
                 features_in_block = np.concatenate([self.normalize_xyz(points_in_block), normals_in_block], axis=1)
             else:
                 features_in_block = np.concatenate([points_in_block, normals_in_block], axis=1)
