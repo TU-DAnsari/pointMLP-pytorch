@@ -11,6 +11,7 @@ class S3DISDataset(BasePointBlockDataset):
                  h5_paths=[], 
                  num_points=1024, 
                  min_points=256,
+                 voxel_size=0.1,
                  block_size=5.0, 
                  stride=2.5, 
                  label_remap={},
@@ -30,8 +31,9 @@ class S3DISDataset(BasePointBlockDataset):
                 points = points_colors[:, :3]
                 labels = np.asarray(f["semantic_labels"], dtype=np.float32)
 
-                point_blocks, feature_blocks, label_blocks = self.data_to_blocks(points=points,
+                point_blocks, feature_blocks, label_blocks = self.data_to_blocks_2(points=points,
                                                                                  labels=labels,
+                                                                                 voxel_size=voxel_size,
                                                                                  num_points=num_points,
                                                                                  min_points=min_points,
                                                                                  block_size=block_size,
@@ -52,11 +54,10 @@ class S3DISDataset(BasePointBlockDataset):
         self.feature_blocks = np.concatenate(self.feature_blocks, axis=0)
         self.label_blocks = np.concatenate(self.label_blocks, axis=0)
 
-<<<<<<< Updated upstream
-=======
     def data_to_blocks_2(self, 
-                       points, 
+                       points,
                        labels,
+                       voxel_size,
                        num_points,
                        min_points,
                        block_size,
@@ -67,14 +68,24 @@ class S3DISDataset(BasePointBlockDataset):
         
         rng_sampling = np.random.default_rng(seed=seed)
 
-        tree = KDTree(points)
+        kdtree = KDTree(points)
+        octree_handler = OctomapHandler(voxel_size)
+        octree_handler.insert_point_cloud_nodes(points)
 
-        mins, maxes = tree.mins, tree.maxes
+        mins, maxes = points.min(axis=0), points.max(axis=0)
         x_range = np.arange(mins[0], maxes[0], stride)
         y_range = np.arange(mins[1], maxes[1], stride)
-        z_range = np.arange(mins[2], maxes[2], stride)
-        xx, yy, zz = np.meshgrid(x_range, y_range, z_range)
-        centers = np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
+        xx, yy= np.meshgrid(x_range, y_range)
+        centers = np.column_stack([xx.ravel(), yy.ravel()])
+        z = points[:, 2]
+        z_mean = z.mean()
+
+        z_size = 2 * np.max([z.max() - z_mean, z_mean - z.min()])
+
+        zs = z_mean * np.ones(centers.shape[0])
+        print(zs.shape)
+
+        centers = np.concatenate([centers, z_mean * np.ones((centers.shape[0], 1))], axis=1)
 
         point_blocks = []
         feature_blocks = []
@@ -83,9 +94,14 @@ class S3DISDataset(BasePointBlockDataset):
         print("centers: ", centers.shape)
 
         for center in centers:
-            idx = tree.query_ball_point(center, r=block_size/2)
-            if len(idx) < min_points:
+
+            points_in_block, _ = octree_handler.get_bbox_points(middle=center, extent=np.array([block_size, block_size, z_size]))
+
+
+            if len(points_in_block) < min_points:
                 continue
+
+            _, idx = kdtree.query(points_in_block, k=1)
 
             replace = len(idx) < num_points
             chosen = rng_sampling.choice(len(idx), num_points, replace=replace)
@@ -115,10 +131,10 @@ class S3DISDataset(BasePointBlockDataset):
 
         return point_blocks, feature_blocks, label_blocks
 
->>>>>>> Stashed changes
     def data_to_blocks(self, 
                        points, 
                        labels,
+                       voxel_size,
                        num_points,
                        min_points,
                        block_size,
