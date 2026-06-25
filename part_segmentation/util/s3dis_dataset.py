@@ -12,6 +12,7 @@ class S3DISDataset(BasePointBlockDataset):
                  min_points=256,
                  block_size=5.0, 
                  stride=2.5, 
+                 label_remap={},
                  normalize=True,
                  seed=42,
                 ):
@@ -35,6 +36,11 @@ class S3DISDataset(BasePointBlockDataset):
                                                                                  block_size=block_size,
                                                                                  stride=stride,
                                                                                  seed=seed)
+                
+                if label_remap:
+                    for i in range(len(label_blocks)):
+                        for j in range(num_points):
+                            label_blocks[i][j] = label_remap[label_blocks[i][j]]
                 
                 self.point_blocks.append(point_blocks)
                 self.feature_blocks.append(feature_blocks)

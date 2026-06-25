@@ -563,7 +563,8 @@ def pointMLP(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
                     groups=1, 
                     res_expansion=1.0,
                     activation="relu", 
-                    bias=True, use_xyz=True, 
+                    bias=True, 
+                    use_xyz=False, 
                     normalize="anchor",
                     dim_expansion=[2, 2, 2, 2], 
                     pre_blocks=[2, 2, 2, 2], 
@@ -572,6 +573,27 @@ def pointMLP(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
                     reducers=[4, 4, 4, 4],
                     de_dims=[512, 256, 128, 128], 
                     de_blocks=[4, 4, 4, 4],
+                    gmp_dim=64, 
+                    **kwargs)
+
+def pointMLPMedium(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
+    return PointMLP(num_classes=num_classes, 
+                    points=num_points, 
+                    input_dim=6,
+                    embed_dim=64, 
+                    groups=1, 
+                    res_expansion=1.0,
+                    activation="relu", 
+                    bias=True, 
+                    use_xyz=False, 
+                    normalize="anchor",
+                    dim_expansion=[2, 2, 2], 
+                    pre_blocks=[2, 2, 2], 
+                    pos_blocks=[2, 2, 2],
+                    k_neighbors=[32, 32, 32], 
+                    reducers=[4, 4, 4],
+                    de_dims=[512, 256, 128], 
+                    de_blocks=[4, 4, 4],
                     gmp_dim=64, 
                     **kwargs)
 

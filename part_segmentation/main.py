@@ -26,7 +26,7 @@ import shutil
 n_classes = 2
 labels_classes = ['environment', 'object']
 
-DATA_PATH = Path("/home/danish/lobster/ml_data/lobrob/reefballs.h5")
+DATA_PATH = Path("/home/danish/lobster/ml_data/lobrob/reefballs_surface.h5")
 DATASET_CLASS = LobRobDataset
 
 
@@ -152,6 +152,8 @@ def train(args, io):
                               persistent_workers=True)
     
     input_dim = train_data.model_input_blocks.shape[-1]
+    if not args.use_normals:
+        input_dim -= 3
 
     model = models.__dict__[args.model](n_classes, args.num_points, input_dim).to(device)
     model.apply(weight_init)
@@ -238,21 +240,15 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
     shape_ious = 0.0
     model.train()
 
-    log_counter = 0
-
     for _, primary_batch, secondary_batch, label_batch, _ in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         batch_size, num_point, _ = primary_batch.size()
 
         sampling_input = primary_batch.float().permute(0, 2, 1)
 
-        if len(args.model_input) == 0 and args.use_normals:
-            model_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
-        if len(args.model_input) == 0 and not args.use_normals:
-            model_input = primary_batch.float().permute(0, 2, 1)
-        if len(args.model_input) != 0 and args.use_normals:
+        if args.use_normals:
             model_input = secondary_batch.float().permute(0, 2, 1)
-        if len(args.model_input) != 0 and not args.use_normals:
-            raise NotImplementedError("Should not be using this configuration")
+        else:
+            model_input = secondary_batch[:, :, :-3].float().permute(0, 2, 1)
         
         labels = label_batch.long()
 
@@ -322,14 +318,10 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
 
             sampling_input = primary_batch.float().permute(0, 2, 1)
 
-            if len(args.model_input) == 0 and args.use_normals:
-                model_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
-            if len(args.model_input) == 0 and not args.use_normals:
-                model_input = primary_batch.float().permute(0, 2, 1)
-            if len(args.model_input) != 0 and args.use_normals:
+            if args.use_normals:
                 model_input = secondary_batch.float().permute(0, 2, 1)
-            if len(args.model_input) != 0 and not args.use_normals:
-                raise NotImplementedError("Should not be using this configuration")
+            else:
+                model_input = secondary_batch[:, :, :-3].float().permute(0, 2, 1)
             
             labels = label_batch.long()
 
@@ -434,16 +426,10 @@ def test(args, io):
         for _, primary_batch, secondary_batch, label_batch, _ in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = primary_batch.size()
 
-            sampling_input = primary_batch.float().permute(0, 2, 1)
-
-            if len(args.model_input) == 0 and args.use_normals:
-                model_input = secondary_batch[:, :, -3:].float().permute(0, 2, 1)
-            if len(args.model_input) == 0 and not args.use_normals:
-                model_input = primary_batch.float().permute(0, 2, 1)
-            if len(args.model_input) != 0 and args.use_normals:
+            if args.use_normals:
                 model_input = secondary_batch.float().permute(0, 2, 1)
-            if len(args.model_input) != 0 and not args.use_normals:
-                raise NotImplementedError("Should not be using this configuration")
+            else:
+                model_input = secondary_batch[:, :, :-3].float().permute(0, 2, 1)
             
             labels = label_batch.long()
 

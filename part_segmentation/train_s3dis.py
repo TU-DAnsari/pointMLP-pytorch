@@ -27,31 +27,64 @@ import matplotlib.ticker as ticker
 
 
 """
-0  ceiling      1  floor       2  wall        3  beam
-4  column       5  window      6  door        7  table
-8  chair        9  sofa       10  bookcase    11  board
+0  ceiling      
+1  floor       
+2  wall        
+3  beam
+4  column       
+5  window      
+6  door        
+7  table
+8  chair        
+9  sofa       
+10  bookcase    
+11  board
 12 clutter
 """
 
+label_remap = {
+    0: 0,
+    1: 0,
+    2: 1,
+    3: 1,
+    4: 1,
+    5: 1,
+    6: 2,
+    7: 2,
+    8: 2,
+    9: 2,
+    10: 2,
+    11: 2,
+    12: 2,
+}
 
-n_classes = 13
-labels_classes = ["ceiling",
-                  "floor", 
-                  "wall", 
-                  "beam", 
-                  "column", 
-                  "window", 
-                  "door", 
-                  "table", 
-                  "chair", 
-                  "sofa", 
-                  "bookcase", 
-                  "board",
-                  "clutter"]
+if label_remap:
+    n_classes = len(set(label_remap.values()))
+    labels_classes = ["ceiling/floor", "structural", "objects"]
+else:
+    n_classes = 13
+    labels_classes = ["ceiling",
+                    "floor", 
+                    "wall", 
+                    "beam", 
+                    "column", 
+                    "window", 
+                    "door", 
+                    "table", 
+                    "chair", 
+                    "sofa", 
+                    "bookcase", 
+                    "board",
+                    "clutter"]
 
-train_paths = []
-val_paths = []
-test_paths = []
+train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5"),
+               Path("/home/danish/lobster/ml/data/s3dis/Area_3.h5"),
+               Path("/home/danish/lobster/ml/data/s3dis/Area_6.h5")]
+
+val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5"),
+               Path("/home/danish/lobster/ml/data/s3dis/Area_4.h5")]
+
+test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -179,9 +212,6 @@ def main():
 
     if args.exp_name is None:
         args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
-
-    if args.model_input is None:
-        args.model_input = []
         
     _init_(args=args)
 
@@ -243,6 +273,7 @@ def train(args, io):
                               block_size=args.block_size,
                               stride=args.stride,
                               normalize=args.normalize,
+                              label_remap=label_remap,
                               )
 
     val_data = S3DISDataset(val_paths,
@@ -251,6 +282,7 @@ def train(args, io):
                             block_size=args.block_size,
                             stride=args.stride,
                             normalize=args.normalize,
+                            label_remap=label_remap,
                             )
 
     print("Training samples: %d" % len(train_data))
@@ -306,7 +338,7 @@ def train(args, io):
     best_instance_iou = 0
 
     label_list = []
-    for _, _, _, label_batch, _ in train_loader:
+    for _, _, label_batch in train_loader:
         label_batch = label_batch.numpy().flatten()
         label_list.append(label_batch)
 
@@ -496,6 +528,7 @@ def test(args, io):
                               block_size=args.block_size,
                               stride=args.stride,
                               normalize=args.normalize,
+                              label_remap=label_remap,
                               )
     
     test_loader = DataLoader(test_data, 

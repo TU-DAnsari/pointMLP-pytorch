@@ -3,6 +3,7 @@ exp_name: null
 sampling_input: 
 - points
 model_input: 
+- points
 - ranges
 - intensities
 - angles_of_incidence

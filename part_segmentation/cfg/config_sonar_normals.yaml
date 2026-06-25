@@ -1,12 +1,12 @@
 model: pointMLPSmall
 exp_name: null
 sampling_input: 
+- points
+model_input:
 - ranges
 - intensities
 - angles_of_incidence
-model_input: null
 use_normals: true
-input_dim: 6
 batch_size: 128
 test_batch_size: 64
 epochs: 150
