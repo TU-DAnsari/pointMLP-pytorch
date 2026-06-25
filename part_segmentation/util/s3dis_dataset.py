@@ -35,6 +35,7 @@ class S3DISDataset(BasePointBlockDataset):
                                                                                  min_points=min_points,
                                                                                  block_size=block_size,
                                                                                  stride=stride,
+                                                                                 normalize=normalize,
                                                                                  seed=seed)
                 
                 if label_remap:
@@ -59,6 +60,7 @@ class S3DISDataset(BasePointBlockDataset):
                        min_points,
                        block_size,
                        stride,
+                       normalize,
                        seed):
         
         
@@ -99,13 +101,29 @@ class S3DISDataset(BasePointBlockDataset):
             pcd.orient_normals_towards_camera_location(camera_location=pcd_center)
 
             normals_in_block = np.asarray(pcd.normals)
-            features_in_block = np.concatenate([points_in_block, normals_in_block], axis=1)
+
+            if self.normalize:
+                features_in_block = np.concatenate([self.normalize_xyz(points_in_block), normals_in_block], axis=1)
+            else:
+                features_in_block = np.concatenate([points_in_block, normals_in_block], axis=1)
+
 
             point_blocks.append(points_in_block)
             feature_blocks.append(features_in_block)
             label_blocks.append(labels_in_block)
 
         return point_blocks, feature_blocks, label_blocks
+    
+    @staticmethod
+    def normalize_xyz(points):
+
+        points_normalized = points - points.mean(axis=0)
+        maxes = points_normalized.max(axis=0)
+        mins = points_normalized.min(axis=0)
+        points_normalized = (points_normalized - mins) / (maxes - mins)
+
+        return points_normalized
+
 
 
     def __getitem__(self, idx):
