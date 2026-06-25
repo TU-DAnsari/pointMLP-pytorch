@@ -3,7 +3,7 @@ exp_name: null
 num_points: 1024
 batch_size: 64
 test_batch_size: 64
-epochs: 100
+epochs: 50
 use_sgd: false
 scheduler: step
 step: 40

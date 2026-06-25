@@ -26,7 +26,7 @@ import shutil
 n_classes = 2
 labels_classes = ['environment', 'object']
 
-DATA_PATH = Path("/home/danish/lobster/ml_data/lobrob/reefballs_surface.h5")
+DATA_PATH = Path("/home/danish/lobster/ml/data/lobrob/reefballs_surface.h5")
 DATASET_CLASS = LobRobDataset
 
 

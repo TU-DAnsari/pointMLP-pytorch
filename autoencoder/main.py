@@ -57,7 +57,7 @@ from util.util import IOStream, parse_args
 # ---------------------------------------------------------------------------
 # Paths / dataset
 # ---------------------------------------------------------------------------
-DATA_PATH     = Path("/home/danish/lobster/ml_data/lobrob/ae_data.h5")
+DATA_PATH     = Path("/home/danish/lobster/ml_data/lobrob/ae_sphere.h5")
 DATASET_CLASS = LobRobDataset
 
 # ---------------------------------------------------------------------------

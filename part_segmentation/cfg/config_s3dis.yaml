@@ -1,11 +1,11 @@
 model: pointMLPSmall
 exp_name: null
-batch_size: 32
-test_batch_size: 32
+batch_size: 64
+test_batch_size: 64
 epochs: 250
 num_points: 1024
-block_size: 2.0
-stride: 1.0
+block_size: 5.0
+stride: 2.5
 min_points: 256
 normalize: true
 use_sgd: false

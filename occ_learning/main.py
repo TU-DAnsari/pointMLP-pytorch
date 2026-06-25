@@ -183,14 +183,16 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
 
         opt.zero_grad(set_to_none=True)
 
-        occ_pred = model(points_partial, points_proxy)     
+        occ_pred = model(points_partial, points_proxy)
+        occ_prob = torch.sigmoid(occ_pred)
 
-        loss = F.mse_loss(occ_pred, labels)
+
+        loss = F.mse_loss(occ_prob, labels)
         loss.backward()
         opt.step()
 
         with torch.no_grad():
-            pred_binary = (occ_pred >= 0.5).float()
+            pred_binary = (occ_prob >= 0.5).float()
             correct = pred_binary.eq(labels).sum()
 
             # Binary IoU: TP / (TP + FP + FN), averaged over batch
@@ -235,11 +237,12 @@ def test_epoch(args, val_loader, model, epoch, io):
             points_proxy = points_proxy.float().permute(0, 2, 1).cuda(non_blocking=True)
             labels = labels.float().cuda(non_blocking=True)
 
-            occ_pred = model(points_partial, points_proxy)     
+            occ_pred = model(points_partial, points_proxy)   
+            occ_prob = torch.sigmoid(occ_pred)
 
-            loss = F.mse_loss(occ_pred, labels)
+            loss = F.mse_loss(occ_prob, labels)
 
-            pred_binary = (occ_pred >= 0.5).float()
+            pred_binary = (occ_prob >= 0.5).float()
             correct = pred_binary.eq(labels).sum()
 
             # Binary IoU: TP / (TP + FP + FN), averaged over batch

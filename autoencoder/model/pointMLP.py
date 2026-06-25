@@ -461,7 +461,7 @@ def pointMLPSmallAutoEncoder(num_points=1024, input_dim=3, **kwargs) -> PointMLP
         k_neighbors=[24, 24],
         reducers=[4, 4],
         gmp_dim=32,
-        fold_hidden=128,
+        fold_hidden=256,
         grid_size=32,
         **kwargs
     )

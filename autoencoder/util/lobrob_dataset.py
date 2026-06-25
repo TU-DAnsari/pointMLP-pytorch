@@ -35,6 +35,12 @@ class LobRobDataset():
         self.sources = np.array(sources)
         self.targets = np.array(targets)
 
+    @staticmethod
+    def normalize(points):
+        points -= points.mean()
+        points /= np.linalg.norm(points, axis=1).max()
+        return points
+
     def __len__(self):
         return len(self.sources)
 
