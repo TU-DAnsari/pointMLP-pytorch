@@ -328,9 +328,9 @@ class PointMLPEncoder(nn.Module):
             x = self.pre_blocks_list[i](x)  # [b,d,g]
             x = self.pos_blocks_list[i](x)  # [b,d,g]
 
-        x = F.adaptive_max_pool1d(x, 1).squeeze(dim=-1)
+        x_pooled = F.adaptive_max_pool1d(x, 1).squeeze(dim=-1)
 
-        return x
+        return x, x_pooled
     
 
 class PointMLPClassHead(nn.Module):
@@ -369,8 +369,8 @@ class PointMLP(nn.Module):
             self.class_head = PointMLPClassHead(class_num=class_num, embed_dim=self.encoder.out_channels, activation=activation)
 
     def forward(self, x):
-        encoder_out = self.encoder(x)
-        return self.class_head(encoder_out)
+        x, x_pooled = self.encoder(x)
+        return self.class_head(x_pooled)
 
 
 # class Model(nn.Module):
@@ -442,15 +442,15 @@ class PointMLP(nn.Module):
 
 
 
-def pointMLP(num_classes=40, **kwargs) -> PointMLP:
-    return PointMLP(points=1024, class_num=num_classes, embed_dim=64, groups=1, res_expansion=1.0,
+def pointMLP(num_points=1024, num_classes=40, **kwargs) -> PointMLP:
+    return PointMLP(points=num_points, class_num=num_classes, embed_dim=64, groups=1, res_expansion=1.0,
                    activation="relu", bias=False, use_xyz=False, normalize="anchor",
                    dim_expansion=[2, 2, 2, 2], pre_blocks=[2, 2, 2, 2], pos_blocks=[2, 2, 2, 2],
                    k_neighbors=[24, 24, 24, 24], reducers=[2, 2, 2, 2], **kwargs)
 
 
-def pointMLPElite(num_classes=40, **kwargs) -> PointMLP:
-    return PointMLP(points=1024, class_num=num_classes, embed_dim=32, groups=1, res_expansion=0.25,
+def pointMLPElite(num_points=1024, num_classes=40, **kwargs) -> PointMLP:
+    return PointMLP(points=num_points, class_num=num_classes, embed_dim=32, groups=1, res_expansion=0.25,
                    activation="relu", bias=False, use_xyz=False, normalize="anchor",
                    dim_expansion=[2, 2, 2, 1], pre_blocks=[1, 1, 2, 1], pos_blocks=[1, 1, 2, 1],
                    k_neighbors=[24,24,24,24], reducers=[2, 2, 2, 2], **kwargs)
