@@ -81,7 +81,7 @@ def weight_init(m):
 
 def train(args, io):
     device = torch.device("cuda")
-    checkpoint_dir = 'checkpoints/%s' % args.exp_name
+    # checkpoint_dir = 'checkpoints/%s' % args.exp_name
 
     train_data = SceneDataset(DATA_PATH,
                               split="train",
@@ -153,12 +153,8 @@ def train(args, io):
     best_class_iou = 0
     best_instance_iou = 0
 
-    label_list = []
-    for _, _, label_batch in train_loader:
-        label_batch = label_batch.numpy().flatten()
-        label_list.append(label_batch)
-
-    class_weights = compute_class_weights(np.array(label_list).reshape(-1), n_classes, device)
+    label_array = train_data.label_blocks.reshape(-1)
+    class_weights = compute_class_weights(label_array, n_classes, device)
 
     # history = _empty_history()
 
@@ -227,6 +223,8 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
         points_batch = points_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
         features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels_batch = labels_batch.long().cuda(non_blocking=True)
+
+        opt.zero_grad(set_to_none=True)
         
         seg_pred = model(points_batch, features_batch)           
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        

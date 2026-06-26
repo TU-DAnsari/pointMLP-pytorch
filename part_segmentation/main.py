@@ -27,8 +27,6 @@ n_classes = 2
 labels_classes = ['environment', 'object']
 
 DATA_PATH = Path("/home/danish/lobster/ml/data/lobrob/reefballs_surface.h5")
-DATASET_CLASS = LobRobDataset
-
 
 def main():    
     args = parse_args()
@@ -91,10 +89,8 @@ def weight_init(m):
 
 def train(args, io):
     device = torch.device("cuda")
-
-    # model = torch.compile(model)
     
-    train_data = DATASET_CLASS(DATA_PATH,
+    train_data = LobRobDataset(DATA_PATH,
                             sampling_input_names=args.sampling_input,
                             model_input_names=args.model_input,
                             split="train", 
@@ -113,7 +109,7 @@ def train(args, io):
                             normalize=args.normalize
                             )
     
-    val_data = DATASET_CLASS(DATA_PATH, 
+    val_data = LobRobDataset(DATA_PATH, 
                             sampling_input_names=args.sampling_input,
                             model_input_names=args.model_input,
                             split="val", 
@@ -376,7 +372,7 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
 
 
 def test(args, io):
-    val_data = DATASET_CLASS(DATA_PATH, 
+    val_data = LobRobDataset(DATA_PATH, 
                             sampling_input_names=args.sampling_input,
                             model_input_names=args.model_input,
                             split="val", 

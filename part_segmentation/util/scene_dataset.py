@@ -10,6 +10,7 @@ class SceneDataset(BasePointBlockDataset):
     def __init__(self, 
                  h5_path,
                  split="train",
+                 scene_ids=[],
                  num_points=1024, 
                  min_points=256,
                  voxel_size=0.1,
@@ -27,7 +28,8 @@ class SceneDataset(BasePointBlockDataset):
         self.label_blocks = []
 
         with h5py.File(h5_path, "r") as f:
-            scene_ids = list(f[split].keys())
+            if not scene_ids:
+                scene_ids = list(f[split].keys())
             for sid in tqdm(scene_ids, desc=f"Loading {split}"):
                 grp = f[split][sid]
 
@@ -83,18 +85,14 @@ class SceneDataset(BasePointBlockDataset):
         z = points[:, 2]
         z_mean = z.mean()
 
-        z_size = 2 * np.max([z.max() - z_mean, z_mean - z.min()])
-
-        zs = z_mean * np.ones(centers.shape[0])
-        print(zs.shape)
+        z_size = 4 * np.max([z.max() - z_mean, z_mean - z.min()])
 
         centers = np.concatenate([centers, z_mean * np.ones((centers.shape[0], 1))], axis=1)
+
 
         point_blocks = []
         feature_blocks = []
         label_blocks = []
-
-        print("centers: ", centers.shape)
 
         for center in centers:
 
