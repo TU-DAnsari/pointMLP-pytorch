@@ -213,7 +213,7 @@ def main():
         best_train_loss = train_out["loss"] if (train_out["loss"] < best_train_loss) else best_train_loss
 
         save_model(
-            net, epoch, path=args.checkpoint, acc=test_out["acc"], is_best=is_best,
+            net, epoch, path=checkpoint_dir, acc=test_out["acc"], is_best=is_best,
             best_test_acc=best_test_acc,  # best test accuracy
             best_train_acc=best_train_acc,
             best_test_acc_avg=best_test_acc_avg,
