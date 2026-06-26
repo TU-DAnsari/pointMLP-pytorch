@@ -220,6 +220,9 @@ def main():
     if not args.eval:
         shutil.copy(args.config, config_save_path)
 
+        with open(config_save_path, 'a') as f:
+            f.write(f"\nDATA_PATH: {train_paths}\n")
+
     log_name = checkpoint_dir + '/%s_%s.log' % (args.model, 'test' if args.eval else 'train')
     io = IOStream(log_name)
     io.cprint(str(args))

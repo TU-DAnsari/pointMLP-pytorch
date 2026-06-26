@@ -97,7 +97,6 @@ class S3DISDataset(BasePointBlockDataset):
 
             points_in_block, _ = octree_handler.get_bbox_points(middle=center, extent=np.array([block_size, block_size, z_size]))
 
-
             if len(points_in_block) < min_points:
                 continue
 

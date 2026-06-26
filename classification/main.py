@@ -18,29 +18,70 @@ import torch.utils.data.distributed
 from torch.utils.data import DataLoader
 import models as models
 from utils import Logger, mkdir_p, progress_bar, save_model, save_args, cal_loss
-from ScanObjectNN import ScanObjectNN
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import sklearn.metrics as metrics
 import numpy as np
 
+from utils.shapenet_dataset import ShapeNetDataset
+from pathlib import Path
+
+import yaml
+from types import SimpleNamespace
+import shutil
+
+DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet.h5")
+
+classes = [
+    "watercraft",
+    "motorbike",
+    "bottle",
+    "laptop",
+    "tower",
+]
+
+
+# def parse_args():
+#     """Parameters"""
+#     parser = argparse.ArgumentParser('training')
+#     parser.add_argument('-c', '--checkpoint', type=str, metavar='PATH',
+#                         help='path to save checkpoint (default: checkpoint)')
+#     parser.add_argument('--msg', type=str, help='message after checkpoint')
+#     parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
+#     parser.add_argument('--model', default='PointNet', help='model name [default: pointnet_cls]')
+#     parser.add_argument('--epoch', default=200, type=int, help='number of epoch in training')
+#     parser.add_argument('--num_points', type=int, default=1024, help='Point Number')
+#     parser.add_argument('--learning_rate', default=0.01, type=float, help='learning rate in training')
+#     parser.add_argument('--weight_decay', type=float, default=1e-4, help='decay rate')
+#     parser.add_argument('--smoothing', action='store_true', default=False, help='loss smoothing')
+#     parser.add_argument('--seed', type=int, help='random seed')
+#     parser.add_argument('--workers', default=4, type=int, help='workers')
+#     return parser.parse_args()
 
 def parse_args():
-    """Parameters"""
-    parser = argparse.ArgumentParser('training')
-    parser.add_argument('-c', '--checkpoint', type=str, metavar='PATH',
-                        help='path to save checkpoint (default: checkpoint)')
-    parser.add_argument('--msg', type=str, help='message after checkpoint')
-    parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
-    parser.add_argument('--model', default='PointNet', help='model name [default: pointnet_cls]')
-    parser.add_argument('--num_classes', default=15, type=int, help='default value for classes of ScanObjectNN')
-    parser.add_argument('--epoch', default=200, type=int, help='number of epoch in training')
-    parser.add_argument('--num_points', type=int, default=1024, help='Point Number')
-    parser.add_argument('--learning_rate', default=0.01, type=float, help='learning rate in training')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='decay rate')
-    parser.add_argument('--smoothing', action='store_true', default=False, help='loss smoothing')
-    parser.add_argument('--seed', type=int, help='random seed')
-    parser.add_argument('--workers', default=4, type=int, help='workers')
-    return parser.parse_args()
+    # Step 1: get the config file path (and any CLI overrides)
+    parser = argparse.ArgumentParser(description='ARKitScenes Scene Segmentation')
+    parser.add_argument('--config', type=str, default='cfg/config.yaml',
+                        help='Path to YAML config file')
+    
+    # Optional: allow any key to be overridden from the CLI
+    args, overrides = parser.parse_known_args()
+
+    # Step 2: load the YAML config
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Step 3: apply CLI overrides (e.g. --learning_rate 0.001 --epochs 100)
+    override_parser = argparse.ArgumentParser()
+    for key, val in config.items():
+        override_parser.add_argument(f'--{key}', type=type(val) if val is not None else str)
+    override_args = override_parser.parse_args(overrides)
+
+    for key, val in vars(override_args).items():
+        if val is not None:
+            config[key] = val
+
+    config['config'] = args.config  # preserve the config path
+    return SimpleNamespace(**config)
 
 
 def main():
@@ -54,19 +95,32 @@ def main():
             torch.cuda.manual_seed(args.seed)
     else:
         device = 'cpu'
-    time_str = str(datetime.datetime.now().strftime('-%Y%m%d%H%M%S'))
-    if args.msg is None:
-        message = time_str
-    else:
-        message = "-" + args.msg
-    args.checkpoint = 'checkpoints/' + args.model + message
-    if not os.path.isdir(args.checkpoint):
-        mkdir_p(args.checkpoint)
+    # time_str = str(datetime.datetime.now().strftime('-%Y%m%d%H%M%S'))
+    # if args.msg is None:
+    #     message = time_str
+    # else:
+    #     message = "-" + args.msg
+    # args.checkpoint = 'checkpoints/' + args.model + message
+    # if not os.path.isdir(args.checkpoint):
+    #     mkdir_p(args.checkpoint)
+
+    exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
+    checkpoint_dir = 'checkpoints/%s' % exp_name
+    config_save_path = os.path.join(checkpoint_dir, 'config.yaml')
+
+    if not os.path.exists('checkpoints'):
+        os.makedirs('checkpoints')
+    if not os.path.exists('checkpoints/' + exp_name):
+        os.makedirs('checkpoints/' + exp_name)
+
+    shutil.copy(args.config, config_save_path)
+    with open(config_save_path, 'a') as f:
+        f.write(f"\nclasses: {classes}\n")
 
     screen_logger = logging.getLogger("Model")
     screen_logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(message)s')
-    file_handler = logging.FileHandler(os.path.join(args.checkpoint, "out.txt"))
+    file_handler = logging.FileHandler(os.path.join(checkpoint_dir, "out.txt"))
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
     screen_logger.addHandler(file_handler)
@@ -78,7 +132,7 @@ def main():
     # Model
     printf(f"args: {args}")
     printf('==> Building model..')
-    net = models.__dict__[args.model](num_classes=args.num_classes)
+    net = models.__dict__[args.model](num_classes=len(classes))
     criterion = cal_loss
     net = net.to(device)
     # criterion = criterion.to(device)
@@ -95,12 +149,13 @@ def main():
     start_epoch = 0  # start from epoch 0 or last checkpoint epoch
     optimizer_dict = None
 
-    if not os.path.isfile(os.path.join(args.checkpoint, "last_checkpoint.pth")):
-        save_args(args)
-        logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title="ModelNet" + args.model)
+    if not os.path.isfile(os.path.join(checkpoint_dir, "last_checkpoint.pth")):
+        # save_args(args)
+        logger = Logger(os.path.join(checkpoint_dir, 'log.txt'), title=exp_name)
         logger.set_names(["Epoch-Num", 'Learning-Rate',
                           'Train-Loss', 'Train-acc-B', 'Train-acc',
                           'Valid-Loss', 'Valid-acc-B', 'Valid-acc'])
+
     else:
         printf(f"Resuming last checkpoint from {args.checkpoint}")
         checkpoint_path = os.path.join(args.checkpoint, "last_checkpoint.pth")
@@ -117,9 +172,20 @@ def main():
         optimizer_dict = checkpoint['optimizer']
 
     printf('==> Preparing data..')
-    train_loader = DataLoader(ScanObjectNN(partition='training', num_points=args.num_points), num_workers=args.workers,
+
+    train_dataset = ShapeNetDataset(h5_path=DATA_PATH,
+                                    classes=classes,
+                                    split="train",
+                                    num_points=args.num_points)
+
+    val_dataset = ShapeNetDataset(h5_path=DATA_PATH,
+                                    classes=classes,
+                                    split="val",
+                                    num_points=args.num_points)
+    
+    train_loader = DataLoader(train_dataset, num_workers=args.workers,
                               batch_size=args.batch_size, shuffle=True, drop_last=True)
-    test_loader = DataLoader(ScanObjectNN(partition='test', num_points=args.num_points), num_workers=args.workers,
+    val_loader = DataLoader(val_dataset, num_workers=args.workers,
                              batch_size=args.batch_size, shuffle=True, drop_last=False)
 
     optimizer = torch.optim.SGD(net.parameters(), lr=args.learning_rate, momentum=0.9, weight_decay=args.weight_decay)
@@ -130,7 +196,7 @@ def main():
     for epoch in range(start_epoch, args.epoch):
         printf('Epoch(%d/%s) Learning Rate %s:' % (epoch + 1, args.epoch, optimizer.param_groups[0]['lr']))
         train_out = train(net, train_loader, optimizer, criterion, device)  # {"loss", "acc", "acc_avg", "time"}
-        test_out = validate(net, test_loader, criterion, device)
+        test_out = validate(net, val_loader, criterion, device)
         scheduler.step()
 
         if test_out["acc"] > best_test_acc:

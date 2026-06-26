@@ -6,7 +6,7 @@ import torch.nn.functional as F
 # from einops import rearrange, repeat
 
 
-from pointnet2_ops import pointnet2_utils
+# from pointnet2_ops import pointnet2_utils
 
 
 def get_activation(activation):
@@ -157,8 +157,8 @@ class LocalGrouper(nn.Module):
         xyz = xyz.contiguous()  # xyz [btach, points, xyz]
 
         # fps_idx = torch.multinomial(torch.linspace(0, N - 1, steps=N).repeat(B, 1).to(xyz.device), num_samples=self.groups, replacement=False).long()
-        # fps_idx = farthest_point_sample(xyz, self.groups).long()
-        fps_idx = pointnet2_utils.furthest_point_sample(xyz, self.groups).long()  # [B, npoint]
+        fps_idx = farthest_point_sample(xyz, self.groups).long()
+        # fps_idx = pointnet2_utils.furthest_point_sample(xyz, self.groups).long()  # [B, npoint]
         new_xyz = index_points(xyz, fps_idx)  # [B, npoint, 3]
         new_points = index_points(points, fps_idx)  # [B, npoint, d]
 
@@ -316,6 +316,8 @@ class PointMLPEncoder(nn.Module):
 
             last_channel = out_channel
 
+        self.out_channels = last_channel
+
     def forward(self, x):
         xyz = x.permute(0, 2, 1)
         batch_size, _, _ = x.size()
@@ -364,7 +366,7 @@ class PointMLP(nn.Module):
                                            dim_expansion=dim_expansion, pre_blocks=pre_blocks, pos_blocks=pos_blocks,
                                            k_neighbors=k_neighbors, reducers=reducers)
             
-            self.class_head = PointMLPClassHead(class_num=class_num, embed_dim=embed_dim, activation=activation)
+            self.class_head = PointMLPClassHead(class_num=class_num, embed_dim=self.encoder.out_channels, activation=activation)
 
     def forward(self, x):
         encoder_out = self.encoder(x)
@@ -441,14 +443,14 @@ class PointMLP(nn.Module):
 
 
 def pointMLP(num_classes=40, **kwargs) -> PointMLP:
-    return pointMLP(points=1024, class_num=num_classes, embed_dim=64, groups=1, res_expansion=1.0,
+    return PointMLP(points=1024, class_num=num_classes, embed_dim=64, groups=1, res_expansion=1.0,
                    activation="relu", bias=False, use_xyz=False, normalize="anchor",
                    dim_expansion=[2, 2, 2, 2], pre_blocks=[2, 2, 2, 2], pos_blocks=[2, 2, 2, 2],
                    k_neighbors=[24, 24, 24, 24], reducers=[2, 2, 2, 2], **kwargs)
 
 
 def pointMLPElite(num_classes=40, **kwargs) -> PointMLP:
-    return pointMLP(points=1024, class_num=num_classes, embed_dim=32, groups=1, res_expansion=0.25,
+    return PointMLP(points=1024, class_num=num_classes, embed_dim=32, groups=1, res_expansion=0.25,
                    activation="relu", bias=False, use_xyz=False, normalize="anchor",
                    dim_expansion=[2, 2, 2, 1], pre_blocks=[1, 1, 2, 1], pos_blocks=[1, 1, 2, 1],
                    k_neighbors=[24,24,24,24], reducers=[2, 2, 2, 2], **kwargs)
