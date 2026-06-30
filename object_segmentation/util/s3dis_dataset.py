@@ -31,7 +31,7 @@ class S3DISDataset(Dataset):
                 points = points_colors[:, :3]
                 labels = np.asarray(f["semantic_labels"], dtype=np.float32)
 
-                point_blocks, feature_blocks, label_blocks = self.data_to_blocks_2(points=points,
+                point_blocks, feature_blocks, label_blocks = self.data_to_blocks(points=points,
                                                                                  labels=labels,
                                                                                  voxel_size=voxel_size,
                                                                                  num_points=num_points,
@@ -54,7 +54,7 @@ class S3DISDataset(Dataset):
         self.feature_blocks = np.concatenate(self.feature_blocks, axis=0)
         self.label_blocks = np.concatenate(self.label_blocks, axis=0)
 
-    def data_to_blocks_2(self, 
+    def data_to_blocks(self, 
                        points,
                        labels,
                        voxel_size,

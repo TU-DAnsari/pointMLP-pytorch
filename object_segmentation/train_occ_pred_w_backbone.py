@@ -131,7 +131,7 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model](args.num_points).to(device)
+    model = models.__dict__[args.model](args.num_points, 96).to(device)
     model.apply(weight_init)
 
     io.cprint(str(model))
@@ -210,25 +210,23 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
     iou = 0.0
     model.train()
 
-    for points_partial, points_proxy, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for reference, partial, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         opt.zero_grad(set_to_none=True)
 
+        batch_size, num_point, _ = reference.size()
 
-
-        batch_size, num_point, _ = points_partial.size()
-
-        points_partial = points_partial.float().permute(0, 2, 1).cuda(non_blocking=True)
-        points_proxy = points_proxy.float().permute(0, 2, 1).cuda(non_blocking=True)
+        reference = reference.float().permute(0, 2, 1).cuda(non_blocking=True)
+        partial = partial.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels = labels.float().cuda(non_blocking=True)
 
-        partial_out = backbone.encoder(points_partial, points_partial)
-        proxy_out = ()
+        with torch.no_grad():
+            reference_out = backbone.encoder(reference, reference)
+            partial_out = backbone.enoder(partial, partial)
 
+            features_reference = backbone.seg_head.decode(reference_out)
+            features_partial = backbone.seg_head.decode(partial_out)
 
-        features_partial = 
-        features_proxy = 
-
-        occ_pred = model(points_partial, points_proxy)
+        occ_pred = model(features_reference, features_partial)
         occ_prob = torch.sigmoid(occ_pred)
 
         loss = F.mse_loss(occ_prob, labels)
