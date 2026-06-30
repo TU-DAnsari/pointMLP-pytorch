@@ -21,14 +21,14 @@ import yaml
 from types import SimpleNamespace
 
 DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet_proxies.h5")
-BACKBONE_DIR = Path("/home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationSmall_2026-06-29_23-09")
+BACKBONE_DIR = Path("/home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationSmall_2026-06-29_23-37")
 with open(BACKBONE_DIR / "config.yaml", 'r') as f:
     config_backbone = yaml.safe_load(f)
     args_backbone = SimpleNamespace(**config_backbone)
 
 device = torch.device("cuda")
 
-backbone = models.__dict__[args_backbone.model_name](3, args_backbone.num_points)
+backbone = models.__dict__[args_backbone.model](3, args_backbone.num_points, 3)
 checkpoint = torch.load(BACKBONE_DIR / "best_insiou_model.pth", weights_only=False, map_location=device)
 state_dict = checkpoint["model"]
 backbone.load_state_dict(state_dict)
@@ -38,7 +38,6 @@ for param in backbone.parameters():
     param.requires_grad = False
 
 backbone.eval()
-
 
 def _empty_history():
     return {
@@ -102,20 +101,20 @@ def train(args, io):
     device = torch.device("cuda")
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
-    train_data = OccupancyDataset(DATA_PATH,
+    train_data_pre = OccupancyDataset(DATA_PATH,
                             split="train",
                             num_points=args.num_points,
                             )
     
-    val_data = OccupancyDataset(DATA_PATH, 
+    val_data_pre = OccupancyDataset(DATA_PATH, 
                             split="val", 
                             num_points=args.num_points,
                             )
 
-    print("Training samples: %d" % len(train_data))
-    print("Validation samples: %d" % len(val_data))
+    print("Training samples: %d" % len(train_data_pre))
+    print("Validation samples: %d" % len(val_data_pre))
 
-    train_loader = DataLoader(train_data, 
+    train_loader_pre = DataLoader(train_data_pre, 
                               batch_size=args.batch_size, 
                               shuffle=True,
                               num_workers=args.workers, 
@@ -123,13 +122,18 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    val_loader   = DataLoader(val_data, 
+    val_loader_pre   = DataLoader(val_data_pre, 
                               batch_size=args.test_batch_size, 
                               shuffle=False,
                               num_workers=args.workers, 
                               drop_last=False,
                               pin_memory=True, 
                               persistent_workers=True)
+    
+    def extract_features(data_loader):
+        
+
+
     
     model = models.__dict__[args.model](args.num_points, 96).to(device)
     model.apply(weight_init)
@@ -189,8 +193,8 @@ def train(args, io):
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'test_acc': best_acc},
                        f'{checkpoint_dir}/best_acc_model.pth')
 
-        if test_metrics['avg_iou'] > best_iou:
-            best_iou = test_metrics['avg_iou']
+        if test_metrics['iou'] > best_iou:
+            best_iou = test_metrics['iou']
             io.cprint('Max instance iou: %.5f' % best_iou)
             torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'best_iou': best_iou},
@@ -219,12 +223,12 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
         partial = partial.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels = labels.float().cuda(non_blocking=True)
 
-        with torch.no_grad():
-            reference_out = backbone.encoder(reference, reference)
-            partial_out = backbone.enoder(partial, partial)
+        # with torch.no_grad():
+        reference_out = backbone.encoder(reference, reference)
+        partial_out = backbone.encoder(partial, partial)
 
-            features_reference = backbone.seg_head.decode(reference_out)
-            features_partial = backbone.seg_head.decode(partial_out)
+        features_reference = backbone.seg_head.decode(reference_out)
+        features_partial = backbone.seg_head.decode(partial_out)
 
         occ_pred = model(features_reference, features_partial)
         occ_prob = torch.sigmoid(occ_pred)
@@ -281,14 +285,21 @@ def test_epoch(args, val_loader, model, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points_partial, points_proxy, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
-            batch_size, num_point, _ = points_partial.size()
+        for reference, partial, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
 
-            points_partial = points_partial.float().permute(0, 2, 1).cuda(non_blocking=True)
-            points_proxy = points_proxy.float().permute(0, 2, 1).cuda(non_blocking=True)
+            batch_size, num_point, _ = reference.size()
+
+            reference = reference.float().permute(0, 2, 1).cuda(non_blocking=True)
+            partial = partial.float().permute(0, 2, 1).cuda(non_blocking=True)
             labels = labels.float().cuda(non_blocking=True)
 
-            occ_pred = model(points_partial, points_proxy)   
+            reference_out = backbone.encoder(reference, reference)
+            partial_out = backbone.encoder(partial, partial)
+
+            features_reference = backbone.seg_head.decode(reference_out)
+            features_partial = backbone.seg_head.decode(partial_out)
+
+            occ_pred = model(features_reference, features_partial)
             occ_prob = torch.sigmoid(occ_pred)
 
             loss = F.mse_loss(occ_prob, labels)

@@ -78,7 +78,7 @@ def farthest_point_sample(xyz, npoint):
     batch_indices = torch.arange(B, dtype=torch.long).to(device)
     for i in range(npoint):
         centroids[:, i] = farthest
-        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+        centroid = xyz[batch_indices, farthest, :].view(B, 1, -1)
         dist = torch.sum((xyz - centroid) ** 2, -1)
         distance = torch.min(distance, dist)
         farthest = torch.max(distance, -1)[1]
@@ -259,13 +259,14 @@ class QueryGrouper(nn.Module):
     positions — allowing us to score any point in space against the learned
     object geometry.
     """
-    def __init__(self, in_channel, out_channel, k=8, bias=True, activation='relu'):
+    def __init__(self, in_channel, coord_channel, out_channel, k=8, bias=True, activation='relu'):
         super().__init__()
         self.k = k
+        self.coord_channel = coord_channel
         # in_channel: surface feature dim d
         # we concatenate (surface_feat, relative_xyz) → d + 3
         self.mlp = nn.Sequential(
-            ConvBNReLU1D(in_channel + 3, out_channel, bias=bias, activation=activation),
+            ConvBNReLU1D(in_channel + coord_channel, out_channel, bias=bias, activation=activation),
             ConvBNReLURes1D(out_channel, bias=bias, activation=activation),
         )
 
@@ -276,7 +277,7 @@ class QueryGrouper(nn.Module):
         query_xyz     [B, Q, 3]
         Returns       [B, out_channel, Q]
         """
-        B, Q, _ = query_xyz.shape
+        B, Q, C = query_xyz.shape
         _, d, N  = surface_feats.shape
 
         # k nearest surface points for each query point
@@ -293,7 +294,7 @@ class QueryGrouper(nn.Module):
         x = torch.cat([neighbor_feats, rel_xyz], dim=-1)         # [B, Q, k, d+3]
 
         # treat (Q, k) as the "points" dimension for the shared MLP
-        x = x.permute(0, 1, 3, 2).reshape(B * Q, d + 3, self.k) # [B*Q, d+3, k]
+        x = x.permute(0, 1, 3, 2).reshape(B * Q, d + C, self.k) # [B*Q, d+3, k]
         x = self.mlp(x)                                          # [B*Q, out_channel, k]
         x = F.adaptive_max_pool1d(x, 1).view(B, Q, -1)          # [B, Q, out_channel]
         return x.permute(0, 2, 1)                                 # [B, out_channel, Q]
@@ -418,6 +419,7 @@ class PointMLP(nn.Module):
         self.query_grouper = QueryGrouper(
             in_channel=query_feat_dim,
             out_channel=query_feat_dim,
+            coord_channel=input_dim,
             k=query_k,
             bias=bias,
             activation=activation,
