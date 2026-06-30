@@ -7,21 +7,36 @@ class OccupancyDataset(Dataset):
     def __init__(self, 
                  h5_path, 
                  split="train", 
+                 num_points=1024,
+                 seed=42,
                 ):
         
         super().__init__()
 
-        self.partials, self.proxies, self.labels = [], [], []
+        rng_sampling = np.random.default_rng(seed=seed)
+
+
+        partials, proxies, labels = [], [], []
         
         with h5py.File(h5_path, "r") as f:
             g = f[split]
 
-            self.partials = np.asarray(g["partial_pcd"], dtype=np.float32)
-            self.proxies = np.asarray(g["proxy_points"], dtype=np.float32)
-            self.labels = np.asarray(g["occupancy_gt"], dtype=np.int8)
+            partials = np.asarray(g["partial_pcd"], dtype=np.float32)
+            proxies = np.asarray(g["proxy_points"], dtype=np.float32)
+            labels = np.asarray(g["occupancy_gt"], dtype=np.int8)
+
+        
+        n_samples, n_pts, _ = partials.shape
+        replace = n_pts < num_points
+
+        idx = rng_sampling.choice(n_pts, num_points, replace=replace)
+
+        self.partials = partials[:, idx, :]
+        self.proxies  = proxies [:, idx, :]
+        self.labels   = labels  [:, idx]
 
     def __len__(self):
-        return len(self.all_partial)
+        return len(self.partials)
     
     def __getitem__(self, index):
         return self.partials[index], self.proxies[index], self.labels[index] 

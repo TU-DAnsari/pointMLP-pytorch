@@ -75,14 +75,20 @@ else:
                     "board",
                     "clutter"]
 
-train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5"),
-               Path("/home/danish/lobster/ml/data/s3dis/Area_3.h5"),
-               Path("/home/danish/lobster/ml/data/s3dis/Area_6.h5")]
+# train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5"),
+#                Path("/home/danish/lobster/ml/data/s3dis/Area_3.h5"),
+#                Path("/home/danish/lobster/ml/data/s3dis/Area_6.h5")]
 
-val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5"),
-               Path("/home/danish/lobster/ml/data/s3dis/Area_4.h5")]
+# val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5"),
+#                Path("/home/danish/lobster/ml/data/s3dis/Area_4.h5")]
 
-test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
+# test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
+
+
+train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5")]
+
+val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5")]
+
 
 def _empty_history():
     return {
@@ -106,7 +112,7 @@ def main():
         
     checkpoint_dir = 'checkpoints/segmentation/%s' % args.exp_name
     config_save_path = os.path.join(checkpoint_dir, 'config.yaml')
-    os.makedirs(checkpoint_dir, exist_ok=False)
+    os.makedirs(checkpoint_dir, exist_ok=True)
     
     if not args.eval:
         shutil.copy(args.config, config_save_path)
@@ -174,7 +180,7 @@ def train(args, io):
                               batch_size=args.batch_size, 
                               shuffle=True,
                               num_workers=args.workers, 
-                              drop_last=True, 
+                              drop_last=False, 
                               pin_memory=True, 
                               persistent_workers=True)
     
@@ -186,7 +192,7 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model](n_classes, args.num_points).to(device)
+    model = models.__dict__[args.model](n_classes, args.num_points, 3).to(device)
     model.apply(weight_init)
 
     io.cprint(str(model))
@@ -244,14 +250,14 @@ def train(args, io):
             io.cprint('Max Acc: %.5f' % best_acc)
             torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'test_acc': best_acc},
-                       'checkpoints/%s/best_acc_model.pth' % args.exp_name)
+                        f'{checkpoint_dir}/best_acc_model.pth')
 
         if test_metrics['avg_iou'] > best_instance_iou:
             best_instance_iou = test_metrics['avg_iou']
             io.cprint('Max instance iou: %.5f' % best_instance_iou)
             torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'test_instance_iou': best_instance_iou},
-                       'checkpoints/%s/best_insiou_model.pth' % args.exp_name)
+                        f'{checkpoint_dir}/best_insiou_model.pth')
 
         avg_class_iou = np.mean(per_class_iou)
         if avg_class_iou > best_class_iou:
@@ -261,14 +267,14 @@ def train(args, io):
             io.cprint('Max class iou: %.5f' % best_class_iou)
             torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'test_class_iou': best_class_iou},
-                       'checkpoints/%s/best_clsiou_model.pth' % args.exp_name)
+                        f'{checkpoint_dir}/best_clsiou_model.pth')
 
     io.cprint('Final Max Acc: %.5f' % best_acc)
     io.cprint('Final Max instance iou: %.5f' % best_instance_iou)
     io.cprint('Final Max class iou: %.5f' % best_class_iou)
     torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                 'optimizer': opt.state_dict(), 'epoch': args.epochs - 1, 'test_iou': best_instance_iou},
-               'checkpoints/%s/model_ep%d.pth' % (args.exp_name, args.epochs))
+                f'{checkpoint_dir}/model_ep{args.epochs}.pth')
 
 
 def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io):
@@ -278,16 +284,16 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
     shape_ious = 0.0
     model.train()
 
-    for points_batch, features_batch, labels_batch in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for points_batch, _, labels_batch in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         opt.zero_grad(set_to_none=True)
 
         batch_size, num_point, _ = points_batch.size()
 
         points_batch = points_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
-        features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
+        # features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels_batch = labels_batch.long().cuda(non_blocking=True)
         
-        seg_pred = model(points_batch, features_batch)           
+        seg_pred = model(points_batch, points_batch)           
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
         loss = F.nll_loss(seg_pred_flat, labels_batch.view(-1), class_weights)
@@ -339,14 +345,14 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points_batch, features_batch, labels_batch in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points_batch, _, labels_batch in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = points_batch.size()
 
             points_batch = points_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
-            features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
+            # features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
             labels_batch = labels_batch.long().cuda(non_blocking=True)
             
-            seg_pred = model(points_batch, features_batch)         
+            seg_pred = model(points_batch, points_batch)         
             batch_shapeious = compute_overall_iou(seg_pred, labels_batch, n_classes)
 
             pred_choice = seg_pred.data.max(2)[1]

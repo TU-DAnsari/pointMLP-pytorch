@@ -17,8 +17,28 @@ import datetime
 from util.util import parse_args, compute_class_weights
 from util.progress_plots import save_plots
 import shutil
+import yaml
+from types import SimpleNamespace
 
 DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet_proxies.h5")
+BACKBONE_DIR = Path("/home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationSmall_2026-06-29_23-09")
+with open(BACKBONE_DIR / "config.yaml", 'r') as f:
+    config_backbone = yaml.safe_load(f)
+    args_backbone = SimpleNamespace(**config_backbone)
+
+device = torch.device("cuda")
+
+backbone = models.__dict__[args_backbone.model_name](3, args_backbone.num_points)
+checkpoint = torch.load(BACKBONE_DIR / "best_insiou_model.pth", weights_only=False, map_location=device)
+state_dict = checkpoint["model"]
+backbone.load_state_dict(state_dict)
+backbone.to(device)
+
+for param in backbone.parameters():
+    param.requires_grad = False
+
+backbone.eval()
+
 
 def _empty_history():
     return {
@@ -36,7 +56,7 @@ def main():
 
     if args.exp_name is None:
         args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
-        
+            
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
     config_save_path = os.path.join(checkpoint_dir, 'config.yaml')
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -193,11 +213,20 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
     for points_partial, points_proxy, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         opt.zero_grad(set_to_none=True)
 
+
+
         batch_size, num_point, _ = points_partial.size()
 
         points_partial = points_partial.float().permute(0, 2, 1).cuda(non_blocking=True)
         points_proxy = points_proxy.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels = labels.float().cuda(non_blocking=True)
+
+        partial_out = backbone.encoder(points_partial, points_partial)
+        proxy_out = ()
+
+
+        features_partial = 
+        features_proxy = 
 
         occ_pred = model(points_partial, points_proxy)
         occ_prob = torch.sigmoid(occ_pred)

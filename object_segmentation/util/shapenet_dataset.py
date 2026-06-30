@@ -15,7 +15,6 @@ class ShapeNetDataset(Dataset):
         
         super().__init__()
 
-        rng_sampling = np.random.default_rng(seed=seed)
 
         self.points = []
         self.features = []
