@@ -138,7 +138,7 @@ class SceneDataset(Dataset):
         points_normalized = points - points.mean(axis=0)
         maxes = points_normalized.max(axis=0)
         mins = points_normalized.min(axis=0)
-        points_normalized = (points_normalized - mins) / (maxes - mins)
+        points_normalized = (points_normalized - mins) / ((maxes - mins) + 1e-8)
 
         return points_normalized
 
