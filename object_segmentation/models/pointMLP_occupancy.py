@@ -281,7 +281,7 @@ class QueryGrouper(nn.Module):
         _, d, N  = surface_feats.shape
 
         # k nearest surface points for each query point
-        idx = knn_point(self.k, surface_xyz, query_xyz)          # [B, Q, k]
+        idx = knn_point(self.k, query_xyz, surface_xyz)          # [B, Q, k]
         neighbor_xyz   = index_points(surface_xyz, idx)          # [B, Q, k, 3]
         neighbor_feats = index_points(
             surface_feats.permute(0, 2, 1), idx                  # [B, N, d] → [B, Q, k, d]
@@ -445,7 +445,8 @@ class PointMLP(nn.Module):
         # ── Encode surface geometry ──────────────────────────────────────────
         # xyz used for spatial operations, x for feature learning
         xyz = surface_pts.permute(0, 2, 1)   # [B, N, 3]
-        x   = self.embedding(surface_pts)               # [B, embed_dim, N]
+        # x   = self.embedding(surface_pts)               # [B, embed_dim, N]
+        x = surface_pts
 
         xyz_list = [xyz]
         x_list   = [x]
@@ -508,7 +509,7 @@ def pointMLPOccupancySmall(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
     return PointMLP(
         points=num_points,
         input_dim=input_dim,
-        embed_dim=32,
+        embed_dim=input_dim,
         dim_expansion=[2, 2],
         pre_blocks=[2, 2],
         pos_blocks=[2, 2],
