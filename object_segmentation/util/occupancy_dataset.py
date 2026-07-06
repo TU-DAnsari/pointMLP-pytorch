@@ -77,5 +77,5 @@ class OccupancyDataset(Dataset):
         return len(self.references)
     
     def __getitem__(self, index):
-        return self.references[index], self.partials_noisy[index], self.labels_noisy[index], self.proxies[index], self.labels[index]
+        return self.references[index], self.partials[index], self.proxies[index], self.partials_noisy[index], self.labels[index], self.labels_noisy[index]
     
