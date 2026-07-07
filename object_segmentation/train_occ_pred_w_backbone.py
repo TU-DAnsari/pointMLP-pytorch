@@ -126,7 +126,7 @@ def main():
     if args.exp_name is None:
         args.exp_name = args.model + "_" + f"{datetime.datetime.now():%Y-%m-%d_%H-%M}"
             
-    checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
+    checkpoint_dir = 'checkpoints/occupancy_bb/%s' % args.exp_name
     config_save_path = os.path.join(checkpoint_dir, 'config.yaml')
     os.makedirs(checkpoint_dir, exist_ok=True)
     
@@ -169,7 +169,7 @@ def weight_init(m):
 
 def train(args, io):
     device = torch.device("cuda")
-    checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
+    checkpoint_dir = 'checkpoints/occupancy_bb/%s' % args.exp_name
 
     train_data_pre = OccupancyDataset(DATA_PATH, split="train", num_points=args.num_points,)
     val_data_pre = OccupancyDataset(DATA_PATH, split="val", num_points=args.num_points,)

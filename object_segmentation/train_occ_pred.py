@@ -169,8 +169,8 @@ def train(args, io):
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'test_acc': best_acc},
                        f'{checkpoint_dir}/best_acc_model.pth')
 
-        if test_metrics['avg_iou'] > best_iou:
-            best_iou = test_metrics['avg_iou']
+        if test_metrics['iou'] > best_iou:
+            best_iou = test_metrics['iou']
             io.cprint('Max instance iou: %.5f' % best_iou)
             torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
                         'optimizer': opt.state_dict(), 'epoch': epoch, 'best_iou': best_iou},
@@ -190,7 +190,7 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
     iou = 0.0
     model.train()
 
-    for points_partial, points_proxy, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for points_reference, points_partial, points_proxy, points_partial_noisy, labels, labels_noisy in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         opt.zero_grad(set_to_none=True)
 
         batch_size, num_point, _ = points_partial.size()
@@ -254,7 +254,7 @@ def test_epoch(args, val_loader, model, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points_partial, points_proxy, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points_reference, points_partial, points_proxy, points_partial_noisy, labels, labels_noisy in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = points_partial.size()
 
             points_partial = points_partial.float().permute(0, 2, 1).cuda(non_blocking=True)

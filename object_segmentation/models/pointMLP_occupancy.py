@@ -445,8 +445,7 @@ class PointMLP(nn.Module):
         # ── Encode surface geometry ──────────────────────────────────────────
         # xyz used for spatial operations, x for feature learning
         xyz = surface_pts.permute(0, 2, 1)   # [B, N, 3]
-        # x   = self.embedding(surface_pts)               # [B, embed_dim, N]
-        x = surface_pts
+        x = self.embedding(surface_pts)               # [B, embed_dim, N]
 
         xyz_list = [xyz]
         x_list   = [x]
@@ -509,7 +508,7 @@ def pointMLPOccupancySmall(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
     return PointMLP(
         points=num_points,
         input_dim=input_dim,
-        embed_dim=input_dim,
+        embed_dim=32,
         dim_expansion=[2, 2],
         pre_blocks=[2, 2],
         pos_blocks=[2, 2],
