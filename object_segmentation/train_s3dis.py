@@ -42,23 +42,23 @@ from util.progress_plots import save_plots
 
 label_remap = {
     0: 0,
-    1: 0,
-    2: 1,
-    3: 1,
-    4: 1,
-    5: 1,
+    1: 1,
+    2: 2,
+    3: 2,
+    4: 2,
+    5: 2,
     6: 2,
-    7: 2,
-    8: 2,
-    9: 2,
-    10: 2,
-    11: 2,
-    12: 2,
+    7: 3,
+    8: 3,
+    9: 3,
+    10: 3,
+    11: 3,
+    12: 3,
 }
 
 if label_remap:
     n_classes = len(set(label_remap.values()))
-    labels_classes = ["ceiling/floor", "structural", "objects"]
+    labels_classes = ["ceiling", "floor", "structural", "objects"]
 else:
     n_classes = 13
     labels_classes = ["ceiling",

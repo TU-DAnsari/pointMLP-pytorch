@@ -3,7 +3,7 @@ import os
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
-from util.occupancy_dataset import OccupancyDataset
+from util.mixed_dataset import MixedOccupancyDataset
 from util.simple_dataset import SimpleDataset
 import torch.nn.functional as F
 import models
@@ -40,73 +40,43 @@ for param in backbone.parameters():
 
 backbone.eval()
 
-def feature_loader(data_loader, norm_stats=None, seed=42):
-    rng_sampling = np.random.default_rng(seed=seed)
-
+def feature_loader(dataset, norm_stats=None, seed=42):
     reference_features = []
-    points = []
-    features = []
-    labels_all = []
+    combined_features = []
+    labels = []
 
     with torch.no_grad():
-        for reference, partial, proxy, _, _, _ in tqdm(data_loader, total=len(data_loader), smoothing=0.9):
-            
-            B, N, C = partial.shape
+        for data in tqdm(dataset, total=len(dataset), smoothing=0.9):
 
-            idx = rng_sampling.choice(N, 512)
+            points_reference = data["reference"]
+            points_combined = data["combined"]
+            labels_match = data["labels_match"]
 
-            partial_points = partial.numpy()
-            proxy_points = proxy.numpy()
+            reference_tensor = torch.tensor(np.array([points_reference])).float().permute(0, 2, 1).cuda(non_blocking=True)
+            reference_out = backbone.encoder(reference_tensor, reference_tensor)
+            reference_fts = backbone.seg_head.decode(reference_out)
+            reference_fts = reference_fts.cpu().numpy()[0].T[:, 0:64]
 
+            combined_tensor = torch.tensor(np.array([points_combined])).float().permute(0, 2, 1).cuda(non_blocking=True)
+            combined_out = backbone.encoder(combined_tensor, combined_tensor)
+            combined_fts = backbone.seg_head.decode(combined_out)
+            combined_fts = combined_fts.cpu().numpy()[0].T[:, 0:64]
 
-            points_batch = np.concatenate([partial_points[:, idx], proxy_points[:, idx]], axis=1)
-            labels_batch = np.concatenate([np.ones((B, 512)), np.zeros((B, 512))], axis=1)
-
-            reference = reference.float().permute(0, 2, 1).cuda(non_blocking=True)
-            partial = partial.float().permute(0, 2, 1).cuda(non_blocking=True)
-            proxy = proxy.float().permute(0, 2, 1).cuda(non_blocking=True)
-
-            reference_out = backbone.encoder(reference, reference)
-            partial_out = backbone.encoder(partial, partial)
-            proxy_out = backbone.encoder(proxy, proxy)
-
-            features_reference = backbone.seg_head.decode(reference_out)
-            features_partial = backbone.seg_head.decode(partial_out)
-            features_proxy = backbone.seg_head.decode(proxy_out)
-
-            features_reference = features_reference.permute(0, 2, 1).cpu().numpy()
-            features_partial = features_partial.permute(0, 2, 1).cpu().numpy()
-            features_proxy = features_proxy.permute(0, 2, 1).cpu().numpy()
-
-            feature_batch = np.concatenate([features_partial[:, idx], features_proxy[:, idx]], axis=1)
-
-            shuffle = rng_sampling.choice(N, N)
-            points_batch = points_batch[:, shuffle]
-            feature_batch = feature_batch[:, shuffle]
-            labels_batch = labels_batch[:, shuffle]
-
-            reference_features.append(features_reference)
-            points.append(points_batch)
-            features.append(feature_batch)
-            labels_all.append(labels_batch)
-
-
-    points = np.concatenate(points, axis=0)
-    reference_features = np.concatenate(reference_features, axis=0)
-    features = np.concatenate(features, axis=0)
-    labels_all = np.concatenate(labels_all, axis=0)
+            reference_features.append(reference_fts)
+            combined_features.append(combined_fts)
+            labels.append(labels_match)
 
     if norm_stats is None:
-        features_all = np.concatenate([reference_features, features], axis=1)
+        features_all = np.concatenate([reference_features, combined_features], axis=1)
         mean = features_all.mean(axis=(0, 1), keepdims=True)
         std = features_all.std(axis=(0, 1), keepdims=True) + 1e-6
         norm_stats = (mean, std)
 
     mean, std = norm_stats
     reference_features = (reference_features - mean) / std
-    features = (features - mean) / std
+    combined_features = (combined_features - mean) / std
 
-    data = [points, reference_features, features, labels_all]
+    data = [reference_features, combined_features, labels]
     return SimpleDataset(data), norm_stats
 
 def _empty_history():
@@ -171,30 +141,14 @@ def train(args, io):
     device = torch.device("cuda")
     checkpoint_dir = 'checkpoints/occupancy_bb/%s' % args.exp_name
 
-    train_data_pre = OccupancyDataset(DATA_PATH, split="train", num_points=args.num_points,)
-    val_data_pre = OccupancyDataset(DATA_PATH, split="val", num_points=args.num_points,)
+    train_data_pre = MixedOccupancyDataset(DATA_PATH, split="train", num_points=args.num_points,)
+    val_data_pre = MixedOccupancyDataset(DATA_PATH, split="val", num_points=args.num_points,)
 
     print("Training samples: %d" % len(train_data_pre))
     print("Validation samples: %d" % len(val_data_pre))
-
-    train_loader_pre = DataLoader(train_data_pre, 
-                              batch_size=args.batch_size, 
-                              shuffle=True,
-                              num_workers=args.workers, 
-                              drop_last=False, 
-                              pin_memory=True, 
-                              persistent_workers=False)
     
-    val_loader_pre   = DataLoader(val_data_pre, 
-                              batch_size=args.test_batch_size, 
-                              shuffle=False,
-                              num_workers=args.workers, 
-                              drop_last=False,
-                              pin_memory=True, 
-                              persistent_workers=False)
-    
-    train_feature_dataset, norm_stats = feature_loader(train_loader_pre)
-    val_feature_dataset, _ = feature_loader(val_loader_pre, norm_stats=norm_stats)
+    train_feature_dataset, norm_stats = feature_loader(train_data_pre)
+    val_feature_dataset, _ = feature_loader(val_data_pre, norm_stats=norm_stats)
 
     train_loader = DataLoader(train_feature_dataset, 
                               batch_size=args.batch_size, 
@@ -212,7 +166,7 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model](args.num_points, 96).to(device)
+    model = models.__dict__[args.model](1024, 64).to(device)
     model.apply(weight_init)
 
     io.cprint(str(model))
@@ -291,7 +245,7 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
     iou = 0.0
     model.train()
 
-    for points, features_reference, features, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for features_reference, features, labels in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         opt.zero_grad(set_to_none=True)
 
         batch_size, num_point, _ = features_reference.size()
@@ -300,10 +254,11 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
         features = features.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels = labels.float().cuda(non_blocking=True)
 
-        occ_pred = model(features_reference, features)
+        occ_pred, match_score = model(features_reference, features)
         occ_prob = torch.sigmoid(occ_pred)
 
-        loss = F.mse_loss(occ_prob, labels)
+        # loss = F.mse_loss(occ_prob, labels)
+        loss = F.binary_cross_entropy_with_logits(occ_pred, labels)
 
         loss.backward()
         opt.step()
@@ -355,14 +310,14 @@ def test_epoch(args, val_loader, model, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points, features_reference, features, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for features_reference, features, labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = features_reference.size()
 
             features_reference = features_reference.float().permute(0, 2, 1).cuda(non_blocking=True)
             features = features.float().permute(0, 2, 1).cuda(non_blocking=True)
             labels = labels.float().cuda(non_blocking=True)
 
-            occ_pred = model(features_reference, features)
+            occ_pred, match_score = model(features_reference, features)
             occ_prob = torch.sigmoid(occ_pred)
 
             loss = F.mse_loss(occ_prob, labels)

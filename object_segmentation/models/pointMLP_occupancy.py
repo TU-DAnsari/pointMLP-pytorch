@@ -357,7 +357,7 @@ class PointMLP(nn.Module):
                  res_expansion=1.0,
                  activation="relu",
                  bias=True,
-                 use_xyz=True,
+                 use_xyz=False,
                  normalize="anchor",
                  dim_expansion=[2, 2],
                  pre_blocks=[2, 2],
@@ -372,6 +372,8 @@ class PointMLP(nn.Module):
         super().__init__()
         self.stages = len(pre_blocks)
         self.points = points
+        self.input_dim = input_dim
+        self.embed_dim = embed_dim
 
         self.embedding = ConvBNReLU1D(input_dim, embed_dim, bias=bias, activation=activation)
 
@@ -445,7 +447,9 @@ class PointMLP(nn.Module):
         # ── Encode surface geometry ──────────────────────────────────────────
         # xyz used for spatial operations, x for feature learning
         xyz = surface_pts.permute(0, 2, 1)   # [B, N, 3]
-        x = self.embedding(surface_pts)               # [B, embed_dim, N]
+        x = surface_pts
+        if self.input_dim != self.embed_dim:
+            x = self.embedding(surface_pts)               # [B, embed_dim, N]
 
         xyz_list = [xyz]
         x_list   = [x]
@@ -517,6 +521,24 @@ def pointMLPOccupancySmall(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
         query_k=2,
         gmp_dim=32,
         use_xyz=False,
+        occ_hidden=64,
+        **kwargs,
+    )
+
+def pointMLPOccupancyHead(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
+    """Lightweight model for fast iteration / small objects."""
+    return PointMLP(
+        points=num_points,
+        input_dim=input_dim,
+        embed_dim=input_dim,
+        use_xyz=False,
+        dim_expansion=[2, 2],
+        pre_blocks=[2, 2],
+        pos_blocks=[2, 2],
+        k_neighbors=[16, 16],
+        reducers=[2, 2],
+        query_k=2,
+        gmp_dim=32,
         occ_hidden=64,
         **kwargs,
     )

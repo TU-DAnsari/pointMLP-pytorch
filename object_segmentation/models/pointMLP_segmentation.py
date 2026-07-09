@@ -575,10 +575,10 @@ def pointMLPSegmentation(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
                     gmp_dim=64, 
                     **kwargs)
 
-def pointMLPSegmentationMedium(num_classes=2, num_points=2048, **kwargs) -> PointMLP:
+def pointMLPSegmentationMedium(num_classes=2, num_points=2048, input_dim=6, **kwargs) -> PointMLP:
     return PointMLP(num_classes=num_classes, 
                     points=num_points, 
-                    input_dim=6,
+                    input_dim=input_dim,
                     embed_dim=64, 
                     groups=1, 
                     res_expansion=1,
