@@ -1,4 +1,6 @@
 from __future__ import absolute_import
 from .pointMLP_classification import pointMLPClassification, pointMLPClassificationElite
 from .pointMLP_segmentation import pointMLPSegmentation, pointMLPSegmentationMedium, pointMLPSegmentationSmall
-from .pointMLP_occupancy import pointMLPOccupancy, pointMLPOccupancySmall, pointMLPOccupancyHead
+from .pointMLP_occupancy2 import pointMLPOccupancySmall2
+from .pointMLP_occupancy import pointMLPOccupancy, pointMLPOccupancySmall
+

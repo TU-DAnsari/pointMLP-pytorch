@@ -374,11 +374,13 @@ class PointMLP(nn.Module):
         self.input_dim = input_dim
         self.embed_dim = embed_dim
 
+        self.k = query_k
+
         self.embedding = ConvBNReLU1D(input_dim, embed_dim, bias=bias, activation=activation)
 
         self.local_grouper_list = nn.ModuleList()
-        self.pre_blocks_list    = nn.ModuleList()
-        self.pos_blocks_list    = nn.ModuleList()
+        self.pre_blocks_list = nn.ModuleList()
+        self.pos_blocks_list = nn.ModuleList()
 
         last_channel  = embed_dim
         anchor_points = points
@@ -420,7 +422,7 @@ class PointMLP(nn.Module):
         self.query_grouper = QueryGrouper(
             in_channel=query_feat_dim,
             out_channel=query_feat_dim,
-            coord_channel=input_dim,
+            coord_channel=3,
             k=query_k,
             bias=bias,
             activation=activation,
@@ -433,13 +435,21 @@ class PointMLP(nn.Module):
             bias=bias,
         )
 
-    def forward(self, surface_pts, query_pts):
+    def forward(self, target_feats, source_xyz, source_feats, proxy_xyz):
         # ── Encode surface geometry ──────────────────────────────────────────
         # xyz used for spatial operations, x for feature learning
-        xyz = surface_pts.permute(0, 2, 1)   # [B, N, 3]
-        x = surface_pts
-        if self.input_dim != self.embed_dim:
-            x = self.embedding(surface_pts)               # [B, embed_dim, N]
+        xyz = source_xyz.permute(0, 2, 1)   # [B, N, 3]
+
+        B, C, N_PROXY = proxy_xyz.shape
+        _, d, N_SOURCE  = source_feats.shape
+
+        idx_feats = knn_point(self.k, target_feats.permute(0, 2, 1), source_feats.permute(0, 2, 1))
+        neighbor_feats = index_points(source_feats.permute(0, 2, 1), idx_feats)
+        rel_feats = target_feats.permute(0, 2, 1).unsqueeze(2) - neighbor_feats
+
+        x = rel_feats.permute(0, 3, 1, 2)
+        x = x.reshape(B, d, N_PROXY * self.k)
+        x = self.embedding(x)
 
         xyz_list = [xyz]
         x_list   = [x]
@@ -464,10 +474,8 @@ class PointMLP(nn.Module):
         surface_xyz_fine   = xyz_list[0]   # [B, N, 3]       full resolution
         surface_feats_fine = x_list[0]     # [B, embed_dim, N]
 
-        query_xyz = query_pts.permute(0, 2, 1)   # [B, Q, 3]
-
         q_feats   = self.query_grouper(
-            surface_xyz_fine, surface_feats_fine, query_xyz
+            surface_xyz_fine, surface_feats_fine, proxy_xyz.permute(0, 2, 1)
         )                                          # [B, embed_dim, Q]
 
         # ── Concatenate global context and classify ──────────────────────────
@@ -498,38 +506,20 @@ def pointMLPOccupancy(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
     )
 
 
-def pointMLPOccupancySmall(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
+def pointMLPOccupancySmall2(num_points=1024, input_dim=3, embed_dim=32, **kwargs) -> PointMLP:
     """Lightweight model for fast iteration / small objects."""
     return PointMLP(
         points=num_points,
         input_dim=input_dim,
-        embed_dim=32,
+        embed_dim=embed_dim,
         dim_expansion=[2, 2],
         pre_blocks=[2, 2],
         pos_blocks=[2, 2],
         k_neighbors=[16, 16],
         reducers=[2, 2],
-        query_k=2,
+        query_k=1,
         gmp_dim=32,
         use_xyz=False,
-        occ_hidden=64,
-        **kwargs,
-    )
-
-def pointMLPOccupancyHead(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
-    """Lightweight model for fast iteration / small objects."""
-    return PointMLP(
-        points=num_points,
-        input_dim=input_dim,
-        embed_dim=input_dim,
-        use_xyz=False,
-        dim_expansion=[2, 2],
-        pre_blocks=[2, 2],
-        pos_blocks=[2, 2],
-        k_neighbors=[16, 16],
-        reducers=[2, 2],
-        query_k=2,
-        gmp_dim=32,
         occ_hidden=64,
         **kwargs,
     )

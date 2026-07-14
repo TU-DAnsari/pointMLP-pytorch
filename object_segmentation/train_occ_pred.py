@@ -83,7 +83,7 @@ def train(args, io):
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
     train_data = OccupancyDataset(DATA_PATH,
-                            split="train",
+                            split="val",
                             num_points=args.num_points,
                             )
     
@@ -99,13 +99,13 @@ def train(args, io):
                               batch_size=args.batch_size, 
                               shuffle=True,
                               num_workers=args.workers, 
-                              drop_last=True, 
+                              drop_last=False, 
                               pin_memory=True, 
                               persistent_workers=True)
     
     val_loader   = DataLoader(val_data, 
                               batch_size=args.test_batch_size, 
-                              shuffle=False,
+                              shuffle=False,T
                               num_workers=args.workers, 
                               drop_last=False,
                               pin_memory=True, 
@@ -263,6 +263,8 @@ def test_epoch(args, val_loader, model, epoch, io):
 
             occ_pred = model(points_partial, points_proxy)   
             occ_prob = torch.sigmoid(occ_pred)
+
+            print(occ_pred.shape)
 
             loss = F.mse_loss(occ_prob, labels)
 
