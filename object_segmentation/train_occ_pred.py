@@ -105,7 +105,7 @@ def train(args, io):
     
     val_loader   = DataLoader(val_data, 
                               batch_size=args.test_batch_size, 
-                              shuffle=False,T
+                              shuffle=False,
                               num_workers=args.workers, 
                               drop_last=False,
                               pin_memory=True, 

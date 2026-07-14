@@ -87,8 +87,8 @@ def farthest_point_sample(xyz, npoint):
 
 def knn_point(nsample, xyz, new_xyz):
     sqrdists = square_distance(new_xyz, xyz)
-    _, group_idx = torch.topk(sqrdists, nsample, dim=-1, largest=False, sorted=False)
-    return group_idx
+    ds, group_idx = torch.topk(sqrdists, nsample, dim=-1, largest=False, sorted=False)
+    return ds, group_idx
 
 
 class LocalGrouper(nn.Module):
@@ -126,7 +126,7 @@ class LocalGrouper(nn.Module):
         new_xyz = index_points(xyz, fps_idx)  # [B, npoint, 3]
         new_points = index_points(points, fps_idx)  # [B, npoint, d]
 
-        idx = knn_point(self.kneighbors, xyz, new_xyz)
+        ds, idx = knn_point(self.kneighbors, xyz, new_xyz)
         # idx = query_ball_point(radius, nsample, xyz, new_xyz)
         grouped_xyz = index_points(xyz, idx)  # [B, npoint, k, 3]
         grouped_points = index_points(points, idx)  # [B, npoint, k, d]
@@ -281,7 +281,7 @@ class QueryGrouper(nn.Module):
         _, d, N  = surface_feats.shape
 
         # k nearest surface points for each query point
-        idx = knn_point(self.k, query_xyz, surface_xyz)          # [B, Q, k]
+        ds, idx = knn_point(self.k, query_xyz, surface_xyz)          # [B, Q, k]
         neighbor_xyz   = index_points(surface_xyz, idx)          # [B, Q, k, 3]
         neighbor_feats = index_points(
             surface_feats.permute(0, 2, 1), idx                  # [B, N, d] → [B, Q, k, d]
@@ -440,16 +440,23 @@ class PointMLP(nn.Module):
         # xyz used for spatial operations, x for feature learning
         xyz = source_xyz.permute(0, 2, 1)   # [B, N, 3]
 
-        B, C, N_PROXY = proxy_xyz.shape
-        _, d, N_SOURCE  = source_feats.shape
+        ds, idx = knn_point(self.k, target_feats.permute(0, 2, 1), source_feats.permute(0, 2, 1))
+        ds = torch.nn.functional.normalize(ds, dim=-1)
+        
+        x = torch.cat([source_xyz.permute(0, 2, 1), ds], dim=-1)
+        x = self.embedding(x.permute(0, 2, 1))
 
-        idx_feats = knn_point(self.k, target_feats.permute(0, 2, 1), source_feats.permute(0, 2, 1))
-        neighbor_feats = index_points(source_feats.permute(0, 2, 1), idx_feats)
-        rel_feats = target_feats.permute(0, 2, 1).unsqueeze(2) - neighbor_feats
+        # B, C, N_PROXY = proxy_xyz.shape
+        # _, d, N_SOURCE  = source_feats.shape
 
-        x = rel_feats.permute(0, 3, 1, 2)
-        x = x.reshape(B, d, N_PROXY * self.k)
-        x = self.embedding(x)
+        # idx_feats = knn_point(self.k, source_feats.permute(0, 2, 1), target_feats.permute(0, 2, 1))
+        # neighbor_feats = index_points(target_feats.permute(0, 2, 1), idx_feats)
+        # rel_feats = source_feats.permute(0, 2, 1).unsqueeze(2) - neighbor_feats
+
+        # x = rel_feats.permute(0, 3, 1, 2)
+        # x = x.reshape(B, d, N_SOURCE * self.k)
+        # x = self.embedding(x)
+
 
         xyz_list = [xyz]
         x_list   = [x]
@@ -519,7 +526,7 @@ def pointMLPOccupancySmall2(num_points=1024, input_dim=3, embed_dim=32, **kwargs
         reducers=[2, 2],
         query_k=1,
         gmp_dim=32,
-        use_xyz=False,
+        use_xyz=True,
         occ_hidden=64,
         **kwargs,
     )

@@ -515,21 +515,3 @@ def pointMLPOccupancySmall(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
         occ_hidden=64,
         **kwargs,
     )
-
-def pointMLPOccupancyHead(num_points=1024, input_dim=3, **kwargs) -> PointMLP:
-    """Lightweight model for fast iteration / small objects."""
-    return PointMLP(
-        points=num_points,
-        input_dim=input_dim,
-        embed_dim=input_dim,
-        use_xyz=False,
-        dim_expansion=[2, 2],
-        pre_blocks=[2, 2],
-        pos_blocks=[2, 2],
-        k_neighbors=[16, 16],
-        reducers=[2, 2],
-        query_k=2,
-        gmp_dim=32,
-        occ_hidden=64,
-        **kwargs,
-    )

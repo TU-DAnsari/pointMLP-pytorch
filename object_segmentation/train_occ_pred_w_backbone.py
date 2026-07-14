@@ -155,15 +155,15 @@ def train(args, io):
     device = torch.device("cuda")
     checkpoint_dir = 'checkpoints/occupancy_bb/%s' % args.exp_name
 
-    train_data_pre = OccupancyDataset(DATA_PATH, split="train", num_points=args_backbone.num_points,)
-    val_data_pre = OccupancyDataset(DATA_PATH, split="val", num_points=args_backbone.num_points,)
+    train_data_pre = OccupancyDataset(DATA_PATH, split="train", num_points=args_backbone.num_points)
+    val_data_pre = OccupancyDataset(DATA_PATH, split="val", num_points=args_backbone.num_points)
 
     print("Training samples: %d" % len(train_data_pre))
     print("Validation samples: %d" % len(val_data_pre))
 
     train_loader_pre = DataLoader(train_data_pre, 
                               batch_size=args.batch_size, 
-                              shuffle=True,
+                              shuffle=False,
                               num_workers=args.workers, 
                               drop_last=False, 
                               pin_memory=True, 
@@ -196,7 +196,7 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model](args_backbone.num_points, 128, 128).to(device)
+    model = models.__dict__[args.model](args_backbone.num_points, 4, 32).to(device)
     model.apply(weight_init)
 
     io.cprint(str(model))
@@ -289,8 +289,8 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
         occ_pred = model(features_reference, points_partial, features_partial, points_proxy)
         occ_prob = torch.sigmoid(occ_pred)
 
-        # loss = F.mse_loss(occ_prob, labels_proxy)
-        loss = F.binary_cross_entropy_with_logits(occ_pred, labels_proxy)
+        loss = F.mse_loss(occ_prob, labels_proxy)
+        # loss = F.binary_cross_entropy_with_logits(occ_pred, labels_proxy)
 
         loss.backward()
         opt.step()
