@@ -196,7 +196,7 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model](args_backbone.num_points, 4, 32).to(device)
+    model = models.__dict__[args.model](args_backbone.num_points, 3, 32).to(device)
     model.apply(weight_init)
 
     io.cprint(str(model))

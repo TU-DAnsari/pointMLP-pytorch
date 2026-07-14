@@ -461,7 +461,7 @@ class PointMLP(nn.Module):
         # ── Project onto query points ────────────────────────────────────────
         # Use the full-resolution surface features (x_list[0]) so the query
         # grouper has the densest possible surface description to sample from.
-        surface_xyz_fine   = xyz_list[0]   # [B, N, 3]       full resolution
+        surface_xyz_fine = xyz_list[0]   # [B, N, 3]       full resolution
         surface_feats_fine = x_list[0]     # [B, embed_dim, N]
 
         query_xyz = query_pts.permute(0, 2, 1)   # [B, Q, 3]

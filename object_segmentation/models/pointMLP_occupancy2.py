@@ -270,7 +270,7 @@ class QueryGrouper(nn.Module):
             ConvBNReLURes1D(out_channel, bias=bias, activation=activation),
         )
 
-    def forward(self, surface_xyz, surface_feats, query_xyz):
+    def forward(self, surface_xyz, surface_feats, query_xyz, target_feats, source_feats):
         """
         surface_xyz   [B, N, 3]
         surface_feats [B, d, N]
@@ -279,6 +279,9 @@ class QueryGrouper(nn.Module):
         """
         B, Q, C = query_xyz.shape
         _, d, N  = surface_feats.shape
+        _, d_fts, _ = source_feats.shape
+
+        
 
         # k nearest surface points for each query point
         ds, idx = knn_point(self.k, query_xyz, surface_xyz)          # [B, Q, k]
@@ -286,14 +289,16 @@ class QueryGrouper(nn.Module):
         neighbor_feats = index_points(
             surface_feats.permute(0, 2, 1), idx                  # [B, N, d] → [B, Q, k, d]
         )
-
-        # relative positions encode where each query sits w.r.t. its neighbours
         rel_xyz = query_xyz.unsqueeze(2) - neighbor_xyz          # [B, Q, k, 3]
 
+        ds, idx = knn_point(self.k, target_feats.permute(0, 2, 1), source_feats.permute(0, 2, 1))
+        neighbor_fts = index_points(source_feats.permute(0, 2, 1), idx)
+        rel_fts = target_feats.permute(0, 2, 1).unsqueeze(2) - neighbor_fts
+
         # concatenate geometric offset with surface feature
-        x = torch.cat([neighbor_feats, rel_xyz], dim=-1)         # [B, Q, k, d+3]
+        x = torch.cat([neighbor_feats, rel_xyz, rel_fts], dim=-1)         # [B, Q, k, d+3]
         # treat (Q, k) as the "points" dimension for the shared MLP
-        x = x.permute(0, 1, 3, 2).reshape(B * Q, d + C, self.k) # [B*Q, d+3, k]
+        x = x.permute(0, 1, 3, 2).reshape(B * Q, d + C + d_fts, self.k) # [B*Q, d+3, k]
         x = self.mlp(x)                                          # [B*Q, out_channel, k]
         x = F.adaptive_max_pool1d(x, 1).view(B, Q, -1)          # [B, Q, out_channel]
         return x.permute(0, 2, 1)                                 # [B, out_channel, Q]
@@ -422,7 +427,7 @@ class PointMLP(nn.Module):
         self.query_grouper = QueryGrouper(
             in_channel=query_feat_dim,
             out_channel=query_feat_dim,
-            coord_channel=3,
+            coord_channel=131,
             k=query_k,
             bias=bias,
             activation=activation,
@@ -439,12 +444,13 @@ class PointMLP(nn.Module):
         # ── Encode surface geometry ──────────────────────────────────────────
         # xyz used for spatial operations, x for feature learning
         xyz = source_xyz.permute(0, 2, 1)   # [B, N, 3]
+        x = self.embedding(source_xyz)
 
-        ds, idx = knn_point(self.k, target_feats.permute(0, 2, 1), source_feats.permute(0, 2, 1))
-        ds = torch.nn.functional.normalize(ds, dim=-1)
-        
-        x = torch.cat([source_xyz.permute(0, 2, 1), ds], dim=-1)
-        x = self.embedding(x.permute(0, 2, 1))
+        # ds, idx = knn_point(self.k, target_feats.permute(0, 2, 1), source_feats.permute(0, 2, 1))
+        # ds = torch.nn.functional.normalize(ds, dim=-1)
+
+        # x = torch.cat([source_xyz.permute(0, 2, 1), ds], dim=-1)
+        # x = self.embedding(x.permute(0, 2, 1))
 
         # B, C, N_PROXY = proxy_xyz.shape
         # _, d, N_SOURCE  = source_feats.shape
@@ -456,7 +462,6 @@ class PointMLP(nn.Module):
         # x = rel_feats.permute(0, 3, 1, 2)
         # x = x.reshape(B, d, N_SOURCE * self.k)
         # x = self.embedding(x)
-
 
         xyz_list = [xyz]
         x_list   = [x]
@@ -482,7 +487,7 @@ class PointMLP(nn.Module):
         surface_feats_fine = x_list[0]     # [B, embed_dim, N]
 
         q_feats   = self.query_grouper(
-            surface_xyz_fine, surface_feats_fine, proxy_xyz.permute(0, 2, 1)
+            surface_xyz_fine, surface_feats_fine, proxy_xyz.permute(0, 2, 1), target_feats, source_feats
         )                                          # [B, embed_dim, Q]
 
         # ── Concatenate global context and classify ──────────────────────────
@@ -526,7 +531,7 @@ def pointMLPOccupancySmall2(num_points=1024, input_dim=3, embed_dim=32, **kwargs
         reducers=[2, 2],
         query_k=1,
         gmp_dim=32,
-        use_xyz=True,
+        use_xyz=False,
         occ_hidden=64,
         **kwargs,
     )
