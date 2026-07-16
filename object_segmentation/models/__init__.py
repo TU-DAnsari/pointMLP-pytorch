@@ -3,4 +3,5 @@ from .pointMLP_classification import pointMLPClassification, pointMLPClassificat
 from .pointMLP_segmentation import pointMLPSegmentation, pointMLPSegmentationMedium, pointMLPSegmentationSmall
 from .pointMLP_occupancy2 import pointMLPOccupancySmall2
 from .pointMLP_occupancy import pointMLPOccupancy, pointMLPOccupancySmall
+from .SconeOcc import SconeOcc
 
