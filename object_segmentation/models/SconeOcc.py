@@ -313,6 +313,45 @@ class SconeOcc(nn.Module):
         res = torch.cat((global_features, local_features, x_features), dim=-1)
         res = self.non_linear1(self.linear1(res))
         res = self.non_linear2(self.linear2(res))
-        res = self.non_linear3(self.linear3(res))
+        res = self.linear3(res)
 
         return res.view(n_clouds, n_sample, self.output_dim)
+    
+
+def SconeOccOG():
+    return SconeOcc(seq_len=2048, 
+                    pts_dim=3, 
+                    pts_embedding_dim=128,
+                    concatenate_input=True,
+                    n_code=2, 
+                    n_heads=4, 
+                    FF=True, 
+                    gelu=True,
+                    global_feature_dim=512,
+                    n_scale=3, 
+                    local_feature_dim=256, 
+                    k_for_knn=16,
+                    x_dim=3,
+                    x_embedding_dim=512,
+                    output_dim=1,
+                    dropout=None,
+                    offset=True)
+
+def SconeOccSmall():
+    return SconeOcc(seq_len=1024, 
+                    pts_dim=3, 
+                    pts_embedding_dim=64,
+                    concatenate_input=True,
+                    n_code=1, 
+                    n_heads=2, 
+                    FF=True, 
+                    gelu=True,
+                    global_feature_dim=256,
+                    n_scale=3, 
+                    local_feature_dim=128, 
+                    k_for_knn=8,
+                    x_dim=3,
+                    x_embedding_dim=256,
+                    output_dim=1,
+                    dropout=None,
+                    offset=True)

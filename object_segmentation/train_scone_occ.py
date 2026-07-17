@@ -83,7 +83,7 @@ def train(args, io):
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
     train_data = OccupancyDataset(DATA_PATH,
-                            split="val",
+                            split="train",
                             num_points=args.num_points,
                             )
     
@@ -201,14 +201,15 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
 
         occ_pred = model(points_partial, points_proxy)
         occ_pred = occ_pred.squeeze(-1)
+        occ_prob = torch.sigmoid(occ_pred)
 
-        loss = F.mse_loss(occ_pred, labels)
+        loss = F.mse_loss(occ_prob, labels)
 
         loss.backward()
         opt.step()
 
         with torch.no_grad():
-            pred_binary = (occ_pred >= 0.5).float()
+            pred_binary = (occ_prob >= 0.5).float()
             correct = pred_binary.eq(labels).sum()
 
             tp = (pred_binary * labels).sum(dim=1)              # (B,)
@@ -237,7 +238,7 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
             for pg in opt.param_groups:
                 pg['lr'] = 0.9e-5
 
-    io.cprint('Train %d, loss: %.5f, acc: %.5f, ins_iou: %.5f, lr: %f' % (
+    io.cprint('Train %d, loss: %.5f, acc: %.5f, iou: %.5f, lr: %f' % (
         epoch + 1, train_loss / count, np.mean(accuracy), iou / count,
         opt.param_groups[0]['lr']))
     
@@ -263,10 +264,11 @@ def test_epoch(args, val_loader, model, epoch, io):
 
             occ_pred = model(points_partial, points_proxy)
             occ_pred = occ_pred.squeeze(-1)
+            occ_prob = torch.sigmoid(occ_pred)
 
-            loss = F.mse_loss(occ_pred, labels)
+            loss = F.mse_loss(occ_prob, labels)
 
-            pred_binary = (occ_pred >= 0.5).float()
+            pred_binary = (occ_prob >= 0.5).float()
             correct = pred_binary.eq(labels).sum()
 
             tp = (pred_binary * labels).sum(dim=1)              # (B,)
