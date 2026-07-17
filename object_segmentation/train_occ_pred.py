@@ -83,7 +83,7 @@ def train(args, io):
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
     train_data = OccupancyDataset(DATA_PATH,
-                            split="val",
+                            split="train",
                             num_points=args.num_points,
                             )
     
@@ -263,8 +263,6 @@ def test_epoch(args, val_loader, model, epoch, io):
 
             occ_pred = model(points_partial, points_proxy)   
             occ_prob = torch.sigmoid(occ_pred)
-
-            print(occ_pred.shape)
 
             loss = F.mse_loss(occ_prob, labels)
 

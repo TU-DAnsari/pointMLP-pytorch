@@ -200,6 +200,7 @@ def train_epoch(args, train_loader, model, opt, scheduler, epoch, io):
         labels = labels.float().cuda(non_blocking=True)
 
         occ_pred = model(points_partial, points_proxy)
+        occ_pred = occ_pred.squeeze(-1)
 
         loss = F.mse_loss(occ_pred, labels)
 
@@ -260,7 +261,8 @@ def test_epoch(args, val_loader, model, epoch, io):
             points_proxy = points_proxy.float().cuda(non_blocking=True)
             labels = labels.float().cuda(non_blocking=True)
 
-            occ_pred = model(points_partial, points_proxy)   
+            occ_pred = model(points_partial, points_proxy)
+            occ_pred = occ_pred.squeeze(-1)
 
             loss = F.mse_loss(occ_pred, labels)
 

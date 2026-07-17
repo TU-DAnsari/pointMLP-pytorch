@@ -284,14 +284,14 @@ class QueryGrouper(nn.Module):
         
 
         # k nearest surface points for each query point
-        ds, idx = knn_point(self.k, query_xyz, surface_xyz)          # [B, Q, k]
+        ds, idx = knn_point(self.k, surface_xyz, query_xyz)          # [B, Q, k]
         neighbor_xyz   = index_points(surface_xyz, idx)          # [B, Q, k, 3]
         neighbor_feats = index_points(
             surface_feats.permute(0, 2, 1), idx                  # [B, N, d] → [B, Q, k, d]
         )
         rel_xyz = query_xyz.unsqueeze(2) - neighbor_xyz          # [B, Q, k, 3]
 
-        ds, idx = knn_point(self.k, target_feats.permute(0, 2, 1), source_feats.permute(0, 2, 1))
+        ds, idx = knn_point(self.k, source_feats.permute(0, 2, 1), target_feats.permute(0, 2, 1))
         neighbor_fts = index_points(source_feats.permute(0, 2, 1), idx)
         rel_fts = target_feats.permute(0, 2, 1).unsqueeze(2) - neighbor_fts
 
@@ -529,7 +529,7 @@ def pointMLPOccupancySmall2(num_points=1024, input_dim=3, embed_dim=32, **kwargs
         pos_blocks=[2, 2],
         k_neighbors=[16, 16],
         reducers=[2, 2],
-        query_k=1,
+        query_k=8,
         gmp_dim=32,
         use_xyz=False,
         occ_hidden=64,
