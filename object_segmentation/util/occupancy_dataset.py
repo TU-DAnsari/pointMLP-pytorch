@@ -9,7 +9,6 @@ class OccupancyDataset(Dataset):
                  h5_path, 
                  split="train", 
                  num_points=1024,
-                 radius=0.1,
                  seed=42,
                 ):
         
@@ -34,48 +33,10 @@ class OccupancyDataset(Dataset):
         self.partials = partials[:, idx, :]
         self.proxies  = proxies [:, idx, :]
         self.labels   = labels  [:, idx]
-
-        self.partials_noisy, self.labels_noisy = self.__noisy_partials(self.partials,
-                                                                       self.proxies,
-                                                                       self.labels,
-                                                                       radius,
-                                                                       seed)
-
-    def __noisy_partials(self, partials_all, proxies_all, labels_all, radius, seed):
-
-        rng_sampling = np.random.default_rng(seed=seed+1)
-
-        n_samples, n_points, _ = partials_all.shape
-
-        partials_noisy = []
-        labels_noisy = []
-
-        for i in tqdm(range(n_samples), total=n_samples):
-            partial = partials_all[i]
-            proxy = proxies_all[i]
-            labels = labels_all[i]
-
-            kdtree = KDTree(proxy)
-            idx_lists = kdtree.query_ball_point(partial, r=radius)
-            idxs = []
-            for idx_list in idx_lists:
-                idxs.extend(idx_list)
-
-            idxs = np.array(idxs)            
-            idxs = np.unique(idxs.reshape(-1))
-
-            replace = len(idxs) < n_points
-            idxs = rng_sampling.choice(idxs, n_points, replace=replace)
-
-            partials_noisy.append(proxy[idxs])
-            labels_noisy.append(labels[idxs])
-
-        return np.array(partials_noisy), np.array(labels_noisy)
-    
-
+        
     def __len__(self):
         return len(self.references)
     
     def __getitem__(self, index):
-        return self.references[index], self.partials[index], self.proxies[index], self.partials_noisy[index], self.labels[index], self.labels_noisy[index]
+        return self.references[index], self.partials[index], self.proxies[index], self.labels[index]
     

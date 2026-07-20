@@ -4,4 +4,4 @@ from .pointMLP_segmentation import pointMLPSegmentation, pointMLPSegmentationMed
 from .pointMLP_occupancy2 import pointMLPOccupancySmall2
 from .pointMLP_occupancy import pointMLPOccupancy, pointMLPOccupancySmall
 from .SconeOcc import SconeOccOG, SconeOccSmall
-
+from .SconeOccFts import SconeOccOGFts, SconeOccSmallFts
