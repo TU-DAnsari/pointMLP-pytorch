@@ -319,6 +319,196 @@ class SconeOcc(nn.Module):
 
         return res.view(n_clouds, n_sample, self.output_dim)
     
+class SconeOccFtEmbed(nn.Module):
+    def __init__(self, seq_len=2048, pts_dim=3, pts_embedding_dim=128,
+                 concatenate_input=True,
+                 n_code=2, n_heads=4, FF=True, gelu=True,
+                 global_feature_dim=512,
+                 n_scale=3, local_feature_dim=256, k_for_knn=16,
+                 x_dim=3, x_embedding_dim=512,
+                 output_dim=1,
+                 bb_feature_dim=128,
+                 dropout=None,
+                 offset=True):
+        """
+        Main class for SCONE's occupancy probability prediction module.
+        A neural model that predicts a vector field as an implicit function, depending on an input point cloud
+        and view state harmonic features representing the history of camera poses.
+        A Transformer with Multi-Scale Neighborhood features (MSN features) is used to encode the point cloud,
+        depending on the query point x.
+
+        :param seq_len: (int) Number of points in the input point cloud.
+        :param pts_dim: (int) Dimension of points in the input point cloud.
+        :param pts_embedding_dim: (int) Dimension of embedded point cloud.
+        :param concatenate_input: (bool) If True, concatenates raw input points to the point embeddings
+        in the point cloud.
+        :param n_code: (int) Number of Multi-Head Self Attention units.
+        :param n_heads: (int) Number of heads in Multi-Head Self Attention units.
+        :param FF: (bool) If True, the Transformer encoder applies a Feed Forward unit after
+        each Multi-Head Self-Attention unit.
+        :param gelu: (bool) If True, the model uses GELU non-linearity. Else, it uses ReLU.
+        :param global_feature_dim: (int) Dimension of the point cloud global feature.
+        :param n_scale: (int) Number of scales to compute neighborhood features in the point cloud.
+        :param local_feature_dim: (int) Dimension of point cloud neighborhood features.
+        :param k_for_knn: (int) Number of neighbors to use when computing a neighborhood feature.
+        :param x_dim: (int) Dimension of query point x.
+        :param x_embedding_dim: (int) Dimension of x embedding.
+        :param n_harmonics: (int) Number of harmonics used to compute view_state harmonic features.
+        :param output_dim: (int) Dimension of the output vector field.
+        :param dropout: Dropout module to apply on computed embeddings.
+        :param offset: (bool) If True, the model uses the offset between x and its neighbors rather than
+        the coordinates of the neighbors to compute neighborhood features.
+        This parameter should always be True, since it leads to far better performances.
+        """
+        super(SconeOccFtEmbed, self).__init__()
+
+        # Parameters
+        self.seq_len = seq_len
+        self.pts_dim = pts_dim
+        self.pts_embedding_dim = pts_embedding_dim
+
+        self.n_code = n_code
+        self.n_heads = n_heads
+        self.FF = FF
+        self.gelu = gelu
+
+        self.n_scale = n_scale
+
+        self.x_dim = x_dim
+        self.x_embedding_dim = x_embedding_dim
+
+        self.output_dim = output_dim
+
+        self.dropout = dropout
+
+        self.encoding_dim = pts_embedding_dim
+
+        self.k_for_knn = k_for_knn
+        self.offset = offset
+        if self.offset:
+            print("Offset set to True.")
+
+        self.global_feature_dim = global_feature_dim
+        self.local_feature_dim = local_feature_dim
+        self.all_feature_size = self.x_embedding_dim \
+                                + self.n_scale * self.local_feature_dim \
+                                + self.global_feature_dim + 2 * bb_feature_dim
+
+        # Point cloud transformers
+        self.global_transformer = PCTransformer(seq_len=seq_len, pts_dim=pts_dim,
+                                                pts_embedding_dim=pts_embedding_dim, feature_dim=global_feature_dim,
+                                                concatenate_input=concatenate_input,
+                                                n_code=n_code, n_heads=n_heads, FF=FF, gelu=gelu,
+                                                dropout=dropout)
+
+        local_transformers = []
+        for i in range(n_scale):
+            local_transformers += [PCTransformer(seq_len=k_for_knn, pts_dim=pts_dim,
+                                                 pts_embedding_dim=pts_embedding_dim, feature_dim=local_feature_dim,
+                                                 concatenate_input=concatenate_input,
+                                                 n_code=n_code, n_heads=n_heads, FF=FF, gelu=gelu,
+                                                 dropout=dropout)]
+        self.local_transformers = nn.ModuleList(local_transformers)
+
+        # X embedding
+        self.x_embedding = XEmbedding(x_dim=x_dim, x_embedding_dim=x_embedding_dim,
+                                      dropout=dropout, gelu=gelu)
+
+        # Point cloud feature extraction
+        self.max_pool = nn.functional.max_pool1d  # kernel_size will be <= seq_len
+        self.avg_pool = nn.functional.avg_pool1d  # kernel_size will be <= seq_len
+
+        # MLP for occupancy probability prediction
+        self.linear1 = nn.Linear(self.all_feature_size, 512)
+        self.linear2 = nn.Linear(512, 256)
+        self.linear3 = nn.Linear(256, output_dim)
+
+        # self.non_linear1 = nn.ReLU(inplace=False)
+        # self.non_linear2 = nn.ReLU(inplace=False)
+        # self.non_linear3 = nn.ReLU(inplace=False)
+
+        if gelu:
+            self.non_linear1 = nn.GELU()
+            self.non_linear2 = nn.GELU()
+            self.non_linear3 = nn.GELU()
+        else:
+            self.non_linear1 = nn.ReLU(inplace=False)
+            self.non_linear2 = nn.ReLU(inplace=False)
+            self.non_linear3 = nn.ReLU(inplace=False)
+
+    def forward(self, pc, pc_fts, x, x_fts, mask=None):
+        """
+        Forward pass.
+        :param pc: (Tensor) Input point cloud tensor with shape (n_clouds, seq_len, pts_dim)
+        :param x: (Tensor) Input query points tensor with shape (n_clouds, n_sample, x_dim)
+        :param view_harmonics: (Tensor) View state harmonic features.
+        Tensor with shape (n_clouds, n_sample, n_harmonics).
+        :param mask: (Tensor) Mask tensor with shape (batch_size, seq_len, seq_len). Optional.
+        :return: (Tensor) Output vector field values for each query point in x.
+        Has shape (n_clouds, n_sample, output_dim)
+        """
+        n_clouds, full_seq_len = pc.shape[0], pc.shape[1]
+        n_sample = x.shape[1]
+
+        # -----Point cloud global encoding-----
+        # Down sampling point cloud for global embedding
+        global_down_sampled_pc = pc[:, torch.randperm(pc.shape[1])[:self.seq_len]]
+        seq_len = global_down_sampled_pc.shape[1]
+
+        global_features = self.global_transformer(global_down_sampled_pc)
+
+        # -----Point cloud local encoding-----
+        # Computing down sampling factor
+        if self.n_scale > 1:
+            ds_factor = int(np.power(full_seq_len / (self.k_for_knn * 8), 1./(self.n_scale - 1)))
+            if ds_factor == 0:
+                # print("Problem: ds_factor=0 encountered. Taking ds_factor=2 as a default value.")
+                ds_factor = 2
+        else:
+            ds_factor = 1
+
+        # kNN computation for local embedding
+        down_sampled_pc = pc
+        local_transformed = []
+        for n_transformer in range(self.n_scale):
+            local_transformer = self.local_transformers[n_transformer]
+            # Get kNN points in down sampled pc
+            local_idx = get_knn_idx(x_fts, pc_fts, self.k_for_knn)
+            local_pc = knn_gather(pc, local_idx)
+            if self.offset:
+                local_pc = local_pc - x.view(n_clouds, n_sample, 1, 3)
+
+            # Compute features
+            local_transformed += [local_transformer(local_pc.view(-1, self.k_for_knn, 3), mask=mask)]
+
+            # Down sample pc
+            ds_seq_len = down_sampled_pc.shape[1]
+            # print("Ds seq len:", ds_seq_len)
+
+            if n_transformer < self.n_scale-1:
+                down_sampled_pc = down_sampled_pc[:, torch.randperm(ds_seq_len)[:ds_seq_len // ds_factor]]
+                # print("DS pc:", down_sampled_pc.shape)
+
+        if self.n_scale > 0:
+            local_features = torch.cat(local_transformed, dim=-1)
+        else:
+            local_features = torch.zeros(n_clouds, n_sample, 0, device=pc.get_device())
+        local_features = local_features.view(n_clouds, n_sample, self.n_scale * self.local_feature_dim)
+
+        # -----X encoding-----
+        x_features = self.x_embedding(x)
+
+        # -----Occupancy prediction-----
+        global_features = global_features.view(n_clouds, 1, self.global_feature_dim).expand(-1, n_sample, -1)
+        x_features = x_features.view(n_clouds, n_sample, self.x_embedding_dim)
+
+        res = torch.cat((global_features, local_features, x_features, pc_fts, x_fts), dim=-1)
+        res = self.non_linear1(self.linear1(res))
+        res = self.non_linear2(self.linear2(res))
+        res = self.linear3(res)
+
+        return res.view(n_clouds, n_sample, self.output_dim)
+    
 
 def SconeOccOGFts():
     return SconeOcc(seq_len=2048, 
@@ -355,5 +545,25 @@ def SconeOccSmallFts():
                     x_dim=3,
                     x_embedding_dim=256,
                     output_dim=1,
+                    dropout=None,
+                    offset=True)
+
+def SconeOccSmallFtsEmbed(bb_feature_dim=128):
+    return SconeOccFtEmbed(seq_len=1024, 
+                    pts_dim=3, 
+                    pts_embedding_dim=64,
+                    concatenate_input=True,
+                    n_code=1, 
+                    n_heads=2, 
+                    FF=True, 
+                    gelu=True,
+                    global_feature_dim=256,
+                    n_scale=3, 
+                    local_feature_dim=128, 
+                    k_for_knn=8,
+                    x_dim=3,
+                    x_embedding_dim=256,
+                    output_dim=1,
+                    bb_feature_dim=bb_feature_dim,
                     dropout=None,
                     offset=True)

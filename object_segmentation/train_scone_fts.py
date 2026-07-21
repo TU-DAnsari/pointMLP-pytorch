@@ -3,7 +3,7 @@ import os
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
-from util.occupancy_dataset import OccupancyDataset
+from util.mixed_dataset import MixedOccupancyDataset
 from util.simple_dataset import SimpleDataset
 import torch.nn.functional as F
 import models
@@ -21,7 +21,7 @@ import shutil
 import yaml
 from types import SimpleNamespace
 
-DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet_proxies.h5")
+DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet_partials_mixed.h5")
 BACKBONE_DIR = Path("/home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationMedium_2026-07-09_16-09")
 with open(BACKBONE_DIR / "config.yaml", 'r') as f:
     config_backbone = yaml.safe_load(f)
@@ -145,8 +145,8 @@ def train(args, io):
     device = torch.device("cuda")
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
-    train_data_pre = OccupancyDataset(DATA_PATH, split="train", num_points=args.num_points)
-    val_data_pre = OccupancyDataset(DATA_PATH, split="val", num_points=args.num_points)
+    train_data_pre = MixedOccupancyDataset(DATA_PATH, split="train", num_points=args.num_points)
+    val_data_pre = MixedOccupancyDataset(DATA_PATH, split="val", num_points=args.num_points)
 
     print("Training samples: %d" % len(train_data_pre))
     print("Validation samples: %d" % len(val_data_pre))
@@ -170,7 +170,7 @@ def train(args, io):
     train_feature_dataset, norm_stats = feature_loader(train_loader_pre)
     val_feature_dataset, _ = feature_loader(val_loader_pre, norm_stats)
 
-    train_loader_pre = DataLoader(train_feature_dataset, 
+    train_loader = DataLoader(train_feature_dataset, 
                               batch_size=args.batch_size, 
                               shuffle=True,
                               num_workers=args.workers, 
@@ -178,7 +178,7 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    val_loader_pre   = DataLoader(val_feature_dataset, 
+    val_loader   = DataLoader(val_feature_dataset, 
                               batch_size=args.test_batch_size, 
                               shuffle=False,
                               num_workers=args.workers, 
@@ -332,14 +332,16 @@ def test_epoch(args, val_loader, model, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points_reference, points_partial, points_proxy, points_partial_noisy, labels, labels_noisy in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
-            batch_size, num_point, _ = points_partial.size()
+        for reference_points, reference_features, combined_points, combined_features, combined_labels in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+            batch_size, num_point, _ = reference_points.size()
 
-            points_partial = points_partial.float().cuda(non_blocking=True)
-            points_proxy = points_proxy.float().cuda(non_blocking=True)
-            labels = labels.float().cuda(non_blocking=True)
+            reference_points = reference_points.float().cuda(non_blocking=True)
+            reference_features = reference_features.float().cuda(non_blocking=True)
+            combined_points = combined_points.float().cuda(non_blocking=True)
+            combined_features = combined_features.float().cuda(non_blocking=True)
+            labels = combined_labels.float().cuda(non_blocking=True)
 
-            occ_pred = model(points_partial, points_proxy)
+            occ_pred = model(reference_points, reference_features, combined_points, combined_features)
             occ_pred = occ_pred.squeeze(-1)
             occ_prob = torch.sigmoid(occ_pred)
 

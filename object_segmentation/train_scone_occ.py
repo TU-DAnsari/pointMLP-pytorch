@@ -18,7 +18,7 @@ from util.util import parse_args, compute_class_weights
 from util.progress_plots import save_plots
 import shutil
 
-DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet_proxies.h5")
+DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet_proxies_surface.h5")
 
 def _empty_history():
     return {
