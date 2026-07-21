@@ -145,6 +145,9 @@ def train(args, io):
     device = torch.device("cuda")
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
+    model = models.__dict__[args.model]().to(device)
+    model.apply(weight_init)
+
     train_data_pre = MixedOccupancyDataset(DATA_PATH, split="train", num_points=args.num_points)
     val_data_pre = MixedOccupancyDataset(DATA_PATH, split="val", num_points=args.num_points)
 
@@ -186,9 +189,6 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model]().to(device)
-    model.apply(weight_init)
-
     io.cprint(str(model))
 
     if args.resume:

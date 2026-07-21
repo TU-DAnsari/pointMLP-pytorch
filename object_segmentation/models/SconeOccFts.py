@@ -327,7 +327,6 @@ class SconeOccFtEmbed(nn.Module):
                  n_scale=3, local_feature_dim=256, k_for_knn=16,
                  x_dim=3, x_embedding_dim=512,
                  output_dim=1,
-                 bb_feature_dim=128,
                  dropout=None,
                  offset=True):
         """
@@ -390,9 +389,7 @@ class SconeOccFtEmbed(nn.Module):
 
         self.global_feature_dim = global_feature_dim
         self.local_feature_dim = local_feature_dim
-        self.all_feature_size = self.x_embedding_dim \
-                                + self.n_scale * self.local_feature_dim \
-                                + self.global_feature_dim + 2 * bb_feature_dim
+        self.all_feature_size = 2 * (self.n_scale * self.local_feature_dim + self.global_feature_dim)
 
         # Point cloud transformers
         self.global_transformer = PCTransformer(seq_len=seq_len, pts_dim=pts_dim,
@@ -453,9 +450,10 @@ class SconeOccFtEmbed(nn.Module):
         # -----Point cloud global encoding-----
         # Down sampling point cloud for global embedding
         global_down_sampled_pc = pc[:, torch.randperm(pc.shape[1])[:self.seq_len]]
-        seq_len = global_down_sampled_pc.shape[1]
+        global_down_sampled_x = x[:, torch.randperm(x.shape[1])[:self.seq_len]]
 
-        global_features = self.global_transformer(global_down_sampled_pc)
+        global_features_pc = self.global_transformer(global_down_sampled_pc)
+        global_features_x = self.global_transformer(global_down_sampled_x)
 
         # -----Point cloud local encoding-----
         # Computing down sampling factor
@@ -469,17 +467,22 @@ class SconeOccFtEmbed(nn.Module):
 
         # kNN computation for local embedding
         down_sampled_pc = pc
-        local_transformed = []
+        local_transformed_pc = []
+        local_transformed_x = []
         for n_transformer in range(self.n_scale):
             local_transformer = self.local_transformers[n_transformer]
             # Get kNN points in down sampled pc
-            local_idx = get_knn_idx(x_fts, pc_fts, self.k_for_knn)
-            local_pc = knn_gather(pc, local_idx)
+            local_idx_pc = get_knn_idx(x_fts, pc_fts, self.k_for_knn)
+            local_pc = knn_gather(pc, local_idx_pc)
+            local_idx_x = get_knn_idx(pc_fts, x_fts, self.k_for_knn)
+            local_x = knn_gather(x, local_idx_x)
+            
             if self.offset:
                 local_pc = local_pc - x.view(n_clouds, n_sample, 1, 3)
 
             # Compute features
-            local_transformed += [local_transformer(local_pc.view(-1, self.k_for_knn, 3), mask=mask)]
+            local_transformed_pc += [local_transformer(local_pc.view(-1, self.k_for_knn, 3), mask=mask)]
+            local_transformed_x += [local_transformer(local_x.view(-1, self.k_for_knn, 3), mask=mask)]
 
             # Down sample pc
             ds_seq_len = down_sampled_pc.shape[1]
@@ -490,19 +493,25 @@ class SconeOccFtEmbed(nn.Module):
                 # print("DS pc:", down_sampled_pc.shape)
 
         if self.n_scale > 0:
-            local_features = torch.cat(local_transformed, dim=-1)
+            local_features_pc = torch.cat(local_transformed_pc, dim=-1)
+            local_features_x = torch.cat(local_transformed_x, dim=-1)
+
         else:
-            local_features = torch.zeros(n_clouds, n_sample, 0, device=pc.get_device())
-        local_features = local_features.view(n_clouds, n_sample, self.n_scale * self.local_feature_dim)
+            local_features_pc = torch.zeros(n_clouds, n_sample, 0, device=pc.get_device())
+            local_features_x = torch.zeros(n_clouds, n_sample, 0, device=x.get_device())
+
+        local_features_pc = local_features_pc.view(n_clouds, n_sample, self.n_scale * self.local_feature_dim)
+        local_features_x = local_features_x.view(n_clouds, n_sample, self.n_scale * self.local_feature_dim)
 
         # -----X encoding-----
-        x_features = self.x_embedding(x)
+        # x_features = self.x_embedding(x)
 
         # -----Occupancy prediction-----
-        global_features = global_features.view(n_clouds, 1, self.global_feature_dim).expand(-1, n_sample, -1)
-        x_features = x_features.view(n_clouds, n_sample, self.x_embedding_dim)
+        global_features_pc = global_features_pc.view(n_clouds, 1, self.global_feature_dim).expand(-1, n_sample, -1)
+        global_features_x = global_features_x.view(n_clouds, 1, self.global_feature_dim).expand(-1, n_sample, -1)
+        # x_features = x_features.view(n_clouds, n_sample, self.x_embedding_dim)
 
-        res = torch.cat((global_features, local_features, x_features, pc_fts, x_fts), dim=-1)
+        res = torch.cat((global_features_pc, local_features_pc, global_features_x, local_features_x), dim=-1)
         res = self.non_linear1(self.linear1(res))
         res = self.non_linear2(self.linear2(res))
         res = self.linear3(res)
@@ -548,22 +557,21 @@ def SconeOccSmallFts():
                     dropout=None,
                     offset=True)
 
-def SconeOccSmallFtsEmbed(bb_feature_dim=128):
+def SconeOccSmallFtsEmbed():
     return SconeOccFtEmbed(seq_len=1024, 
                     pts_dim=3, 
-                    pts_embedding_dim=64,
+                    pts_embedding_dim=32,
                     concatenate_input=True,
                     n_code=1, 
                     n_heads=2, 
                     FF=True, 
                     gelu=True,
-                    global_feature_dim=256,
+                    global_feature_dim=128,
                     n_scale=3, 
-                    local_feature_dim=128, 
+                    local_feature_dim=64, 
                     k_for_knn=8,
                     x_dim=3,
                     x_embedding_dim=256,
                     output_dim=1,
-                    bb_feature_dim=bb_feature_dim,
                     dropout=None,
-                    offset=True)
+                    offset=False)
