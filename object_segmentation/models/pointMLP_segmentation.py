@@ -464,6 +464,8 @@ class PointMLPSegHead(nn.Module):
                 )
             )
 
+        self.decode_norm = nn.BatchNorm1d(gmp_dim + de_dims_dec[-1]) # ADDED
+
         # final per-point classifier
         self.classifier = nn.Sequential(
             nn.Conv1d(gmp_dim + de_dims_dec[-1], 128, 1, bias=bias),
@@ -499,6 +501,7 @@ class PointMLPSegHead(nn.Module):
 
         # append global context to every point
         x = torch.cat([x, global_context.repeat([1, 1, x.shape[-1]])], dim=1)
+        x = self.decode_norm(x) # ADDED
         return x   # (B, gmp_dim + de_dims[-1], N)
 
     def forward(self, encoder_out):
