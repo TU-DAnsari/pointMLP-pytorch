@@ -8,6 +8,10 @@ block_size: 2.0
 stride: 1.0
 min_points: 256
 normalize: true
+neas_enable: true
+neas_max_iter: 5
+neas_axes: x, y, z
+neas_feat_weight: 0.0
 use_sgd: false
 scheduler: step
 step: 40

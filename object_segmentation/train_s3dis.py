@@ -15,13 +15,15 @@ import random
 from pathlib import Path
 import datetime
 from util.util import parse_args, compute_class_weights
+from util.util import compute_overall_iou
+from util.neas import search_angles
+from util.rotation import rotate_points
+from util.feature_consistency import feature_consistency_loss
 import shutil
 import matplotlib
 matplotlib.use('Agg')   # no display needed on a training server
 
 from util.progress_plots import save_plots
-
-
 
 
 """
@@ -84,10 +86,9 @@ else:
 
 # test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
 
-
 train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5")]
-
 val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5")]
+
 
 
 def _empty_history():
@@ -231,7 +232,7 @@ def train(args, io):
     history = _empty_history()
 
     for epoch in range(args.epochs):
-        train_metrics = train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io)
+        train_metrics = train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io, ntk_params=None)
         test_metrics, per_class_iou = test_epoch(args, val_loader, model, class_weights, epoch, io)
 
         history["train_loss"].append(train_metrics["loss"])
@@ -277,28 +278,56 @@ def train(args, io):
                 f'{checkpoint_dir}/model_ep{args.epochs}.pth')
 
 
-def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io):
+def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io, ntk_params):
     train_loss = 0.0
     count = 0.0
     accuracy = []
     shape_ious = 0.0
     model.train()
 
-    for points_batch, _, labels_batch in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
-        opt.zero_grad(set_to_none=True)
+    neas_on   = getattr(args, "neas_enable", False)
+    max_iter  = getattr(args, "neas_max_iter", 5)
+    axes      = tuple(getattr(args, "neas_axes", ("x", "y", "z")))
+    feat_w    = float(getattr(args, "neas_feat_weight", 0.0))
 
+
+    for points_batch, _, labels_batch in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         batch_size, num_point, _ = points_batch.size()
 
         points_batch = points_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
         # features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels_batch = labels_batch.long().cuda(non_blocking=True)
+    
+        if neas_on:
+            # search dirties .grad and runs several fwd/bwd internally;
+            # it calls model.zero_grad() at the end.
+            (ax, ay, az), _chosen = search_angles(
+                model, points_batch, points_batch,
+                axes=axes, max_iter=max_iter, ntk_params=ntk_params,
+            )
+            rot_points = rotate_points(points_batch, ax, ay, az).detach()
+        else:
+            rot_points = None
+
+        opt.zero_grad(set_to_none=True)
         
         seg_pred = model(points_batch, points_batch)           
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
         loss = F.nll_loss(seg_pred_flat, labels_batch.view(-1), class_weights)
-        loss = torch.mean(loss)
 
+        if rot_points is not None:
+            seg_pred_rot = model(rot_points, rot_points)
+            seg_flat_rot = seg_pred_rot.contiguous().view(-1, n_classes)
+            loss = loss + F.nll_loss(seg_flat_rot, labels_batch.view(-1), class_weights)
+ 
+            # -------- (d) optional feature-consistency term --------
+            if feat_w > 0.0:
+                loss = loss + feat_w * feature_consistency_loss(
+                    model, points_batch, points_batch, ax, ay, az
+                )
+
+        loss = torch.mean(loss)
         loss.backward()
         opt.step()
 
