@@ -86,8 +86,6 @@ else:
 
 # test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
 
-train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5")]
-val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5")]
 
 
 
