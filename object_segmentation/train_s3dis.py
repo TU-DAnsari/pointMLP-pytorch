@@ -25,7 +25,6 @@ matplotlib.use('Agg')   # no display needed on a training server
 
 from util.progress_plots import save_plots
 
-
 """
 0  ceiling      
 1  floor       
@@ -158,6 +157,7 @@ def train(args, io):
                               num_points=args.num_points,
                               min_points=args.min_points,
                               block_size=args.block_size,
+                              noise_std=args.noise_std,
                               stride=args.stride,
                               normalize=args.normalize,
                               label_remap=label_remap,
@@ -166,6 +166,7 @@ def train(args, io):
     val_data = S3DISDataset(val_paths,
                             num_points=args.num_points,
                             min_points=args.min_points,
+                            noise_std=args.noise_std,
                             block_size=args.block_size,
                             stride=args.stride,
                             normalize=args.normalize,

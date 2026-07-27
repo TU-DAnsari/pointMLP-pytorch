@@ -11,6 +11,7 @@ class SceneDataset(Dataset):
                  h5_path,
                  split="train",
                  scene_ids=[],
+                 noise_std=0.0,
                  num_points=1024, 
                  min_points=256,
                  voxel_size=0.1,
@@ -27,6 +28,8 @@ class SceneDataset(Dataset):
         self.feature_blocks = []
         self.label_blocks = []
 
+        rng_sampling = np.random.default_rng(seed=seed)
+
         with h5py.File(h5_path, "r") as f:
             if not scene_ids:
                 scene_ids = list(f[split].keys())
@@ -35,6 +38,9 @@ class SceneDataset(Dataset):
 
                 points = np.asarray(grp["points"], dtype=np.float32)
                 labels = np.asarray(grp["labels"], dtype=np.int64)
+
+                if noise_std > 0.0:
+                    points += rng_sampling.normal(scale=noise_std, size=points.shape)
 
                 point_blocks, feature_blocks, label_blocks = self.data_to_blocks(points=points,
                                                                                  labels=labels,

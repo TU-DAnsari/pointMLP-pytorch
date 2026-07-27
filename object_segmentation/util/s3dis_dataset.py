@@ -9,6 +9,7 @@ from .octomap_handler import OctomapHandler
 class S3DISDataset(Dataset):
     def __init__(self, 
                  h5_paths=[], 
+                 noise_std=0.0,
                  num_points=1024, 
                  min_points=256,
                  voxel_size=0.1,
@@ -25,11 +26,16 @@ class S3DISDataset(Dataset):
         self.feature_blocks = []
         self.label_blocks = []
 
+        rng_sampling = np.random.default_rng(seed=seed)
+
         for h5_path in h5_paths:
             with h5py.File(h5_path, "r") as f:
                 points_colors = np.asarray(f["points"], dtype=np.float32)
                 points = points_colors[:, :3]
                 labels = np.asarray(f["semantic_labels"], dtype=np.float32)
+
+                if noise_std > 0.0:
+                                    points += rng_sampling.normal(scale=noise_std, size=points.shape)
 
                 point_blocks, feature_blocks, label_blocks = self.data_to_blocks(points=points,
                                                                                  labels=labels,
