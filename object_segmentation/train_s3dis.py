@@ -76,16 +76,14 @@ else:
                     "board",
                     "clutter"]
 
-# train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5"),
-#                Path("/home/danish/lobster/ml/data/s3dis/Area_3.h5"),
-#                Path("/home/danish/lobster/ml/data/s3dis/Area_6.h5")]
+train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5"),
+               Path("/home/danish/lobster/ml/data/s3dis/Area_3.h5"),
+               Path("/home/danish/lobster/ml/data/s3dis/Area_6.h5")]
 
-# val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5"),
-#                Path("/home/danish/lobster/ml/data/s3dis/Area_4.h5")]
+val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5"),
+               Path("/home/danish/lobster/ml/data/s3dis/Area_4.h5")]
 
-# test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
-
-
+test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
 
 
 def _empty_history():
@@ -290,11 +288,11 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
     feat_w    = float(getattr(args, "neas_feat_weight", 0.0))
 
 
-    for points_batch, _, labels_batch in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
+    for points_batch, features_batch, labels_batch in tqdm(train_loader, total=len(train_loader), smoothing=0.9):
         batch_size, num_point, _ = points_batch.size()
 
         points_batch = points_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
-        # features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
+        features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
         labels_batch = labels_batch.long().cuda(non_blocking=True)
     
         if neas_on:
@@ -310,7 +308,7 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
 
         opt.zero_grad(set_to_none=True)
         
-        seg_pred = model(points_batch, points_batch)           
+        seg_pred = model(points_batch, features_batch)           
         seg_pred_flat = seg_pred.contiguous().view(-1, n_classes)        
 
         loss = F.nll_loss(seg_pred_flat, labels_batch.view(-1), class_weights)
@@ -373,14 +371,14 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
     model.eval()
 
     with torch.no_grad():
-        for points_batch, _, labels_batch in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
+        for points_batch, features_batch, labels_batch in tqdm(val_loader, total=len(val_loader), smoothing=0.9):
             batch_size, num_point, _ = points_batch.size()
 
             points_batch = points_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
-            # features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
+            features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
             labels_batch = labels_batch.long().cuda(non_blocking=True)
             
-            seg_pred = model(points_batch, points_batch)         
+            seg_pred = model(points_batch, features_batch)         
             batch_shapeious = compute_overall_iou(seg_pred, labels_batch, n_classes)
 
             pred_choice = seg_pred.data.max(2)[1]

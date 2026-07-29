@@ -148,6 +148,14 @@ class SceneDataset(Dataset):
 
         return points_normalized
 
+    @staticmethod
+    def normlize_unit_sphere(points):
+        points_normalized = points - points.mean(axis=0)
+        scale = np.linalg.norm(points_normalized, axis=1).max()
+        points_normalized = points_normalized / (scale + 1e-8)
+
+        return points_normalized
+
     def __len__(self):
         return len(self.point_blocks)
 
