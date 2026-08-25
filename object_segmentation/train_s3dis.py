@@ -41,51 +41,6 @@ from util.progress_plots import save_plots
 12 clutter
 """
 
-label_remap = {
-    0: 0,
-    1: 1,
-    2: 2,
-    3: 2,
-    4: 2,
-    5: 2,
-    6: 2,
-    7: 3,
-    8: 3,
-    9: 3,
-    10: 3,
-    11: 3,
-    12: 3,
-}
-
-if label_remap:
-    n_classes = len(set(label_remap.values()))
-    labels_classes = ["ceiling", "floor", "structural", "objects"]
-else:
-    n_classes = 13
-    labels_classes = ["ceiling",
-                    "floor", 
-                    "wall", 
-                    "beam", 
-                    "column", 
-                    "window", 
-                    "door", 
-                    "table", 
-                    "chair", 
-                    "sofa", 
-                    "bookcase", 
-                    "board",
-                    "clutter"]
-
-train_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_1.h5"),
-               Path("/home/danish/lobster/ml/data/s3dis/Area_3.h5"),
-               Path("/home/danish/lobster/ml/data/s3dis/Area_6.h5")]
-
-val_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_2.h5"),
-               Path("/home/danish/lobster/ml/data/s3dis/Area_4.h5")]
-
-test_paths = [Path("/home/danish/lobster/ml/data/s3dis/Area_5.h5")]
-
-
 def _empty_history():
     return {
         "train_loss": [],
@@ -112,8 +67,6 @@ def main():
     
     if not args.eval:
         shutil.copy(args.config, config_save_path)
-        with open(config_save_path, 'a') as f:
-            f.write(f"\nDATA_PATH: {train_paths}\n")
 
     log_name = checkpoint_dir + '/%s_%s.log' % (args.model, 'test' if args.eval else 'train')
     io = IOStream(log_name)
@@ -151,6 +104,13 @@ def train(args, io):
     device = torch.device("cuda")
     checkpoint_dir = 'checkpoints/segmentation/%s' % args.exp_name
 
+    train_paths = [Path(path).expanduser().resolve() for path in args.train_paths]
+    val_paths = [Path(path).expanduser().resolve() for path in args.val_paths]
+
+    label_remap = args.label_remap
+    labels_classes = args.labels_classes
+    n_classes = len(set(label_remap.values())) if label_remap else 13
+
     train_data = S3DISDataset(train_paths,
                               num_points=args.num_points,
                               min_points=args.min_points,
@@ -158,7 +118,7 @@ def train(args, io):
                               noise_std=args.noise_std,
                               stride=args.stride,
                               normalize=args.normalize,
-                              label_remap=label_remap,
+                              label_remap=args.label_remap,
                               )
 
     val_data = S3DISDataset(val_paths,
@@ -168,7 +128,7 @@ def train(args, io):
                             block_size=args.block_size,
                             stride=args.stride,
                             normalize=args.normalize,
-                            label_remap=label_remap,
+                            label_remap=args.label_remap,
                             )
 
     print("Training samples: %d" % len(train_data))
@@ -276,6 +236,10 @@ def train(args, io):
 
 
 def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io, ntk_params):
+
+    label_remap = args.label_remap
+    n_classes = len(set(label_remap.values())) if label_remap else 13
+
     train_loss = 0.0
     count = 0.0
     accuracy = []
@@ -361,6 +325,11 @@ def train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch,
 
 
 def test_epoch(args, val_loader, model, class_weights, epoch, io):
+
+    label_remap = args.label_remap
+    labels_classes = args.labels_classes
+    n_classes = len(set(label_remap.values())) if label_remap else 13
+
     test_loss = 0.0
     count = 0.0
     accuracy = []
@@ -378,7 +347,7 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
             features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
             labels_batch = labels_batch.long().cuda(non_blocking=True)
             
-            seg_pred = model(points_batch, features_batch)         
+            seg_pred = model(points_batch, features_batch)
             batch_shapeious = compute_overall_iou(seg_pred, labels_batch, n_classes)
 
             pred_choice = seg_pred.data.max(2)[1]

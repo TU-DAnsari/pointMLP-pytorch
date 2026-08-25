@@ -1,18 +1,30 @@
 model: pointMLPSegmentationMedium
+
+label_remap: {}
+labels_classes: ["ceiling", "floor",  "wall",  "beam",  "column",  "window",  "door",  "table",  "chair",  "sofa",  "bookcase",  "board", "clutter"]
+
+n_inputs: 6
+train_paths: [/home/danish/lobster/ml/data/s3dis/Area_1.h5, /home/danish/lobster/ml/data/s3dis/Area_3.h5, /home/danish/lobster/ml/data/s3dis/Area_6.h5]
+val_paths: [/home/danish/lobster/ml/data/s3dis/Area_2.h5, /home/danish/lobster/ml/data/s3dis/Area_4.h5]
+test_paths: [/home/danish/lobster/ml/data/s3dis/Area_5.h5]
+
 exp_name: null
 batch_size: 64
 test_batch_size: 64
 epochs: 250
+
 noise_std: 0.05
 num_points: 1024
 block_size: 2.0
 stride: 1.0
 min_points: 256
 normalize: true
+
 neas_enable: true
 neas_max_iter: 3
 neas_axes: [x, y, z]
 neas_feat_weight: 0.0
+
 use_sgd: false
 scheduler: step
 step: 40
