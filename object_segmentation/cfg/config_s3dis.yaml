@@ -20,7 +20,7 @@ stride: 1.0
 min_points: 256
 normalize: true
 
-neas_enable: true
+neas_enable: false
 neas_max_iter: 3
 neas_axes: [x, y, z]
 neas_feat_weight: 0.0

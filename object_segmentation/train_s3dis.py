@@ -111,6 +111,13 @@ def train(args, io):
     labels_classes = args.labels_classes
     n_classes = len(set(label_remap.values())) if label_remap else 13
 
+    assert len(labels_classes) == n_classes
+
+    model = models.__dict__[args.model](n_classes, args.num_points, args.n_inputs).to(device)
+    model.apply(weight_init)
+
+    io.cprint(str(model))
+
     train_data = S3DISDataset(train_paths,
                               num_points=args.num_points,
                               min_points=args.min_points,
@@ -150,11 +157,6 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    model = models.__dict__[args.model](n_classes, args.num_points, 3).to(device)
-    model.apply(weight_init)
-
-    io.cprint(str(model))
-
     if args.resume:
         state_dict = torch.load(f"{checkpoint_dir}/best_insiou_model.pth", weights_only=False, map_location='cpu')['model']
         state_dict = {
@@ -389,76 +391,6 @@ def test_epoch(args, val_loader, model, class_weights, epoch, io):
     )
 
     return metrics, per_class_iou
-
-
-# def test(args, io):
-#     test_data = S3DISDataset(test_paths,
-#                               num_points=args.num_points,
-#                               min_points=args.min_points,
-#                               block_size=args.block_size,
-#                               stride=args.stride,
-#                               normalize=args.normalize,
-#                               label_remap=label_remap,
-#                               )
-    
-#     test_loader = DataLoader(test_data, 
-#                               batch_size=args.test_batch_size, 
-#                               shuffle=False,
-#                               num_workers=args.workers, 
-#                               drop_last=False,
-#                               pin_memory=True, 
-#                               persistent_workers=True)
-
-#     device = torch.device("cuda")
-#     model = models.__dict__[args.model](n_classes).to(device)
-
-#     from collections import OrderedDict
-#     state_dict = torch.load("checkpoints/%s/best_%s_model.pth" % (args.exp_name, args.model_type),
-#                             map_location='cpu')['model']
-#     new_state_dict = OrderedDict()
-#     for k, v in state_dict.items():
-#         new_state_dict[k.replace('module.', '')] = v
-#     model.load_state_dict(new_state_dict)
-#     model.eval()
-
-#     accuracy = []
-#     shape_ious = []
-#     per_class_iou  = np.zeros(n_classes, dtype=np.float32)
-#     per_class_seen = np.zeros(n_classes, dtype=np.int32)
-
-#     with torch.no_grad():
-#         for points_batch, features_batch, labels_batch in tqdm(test_loader, total=len(test_loader), smoothing=0.9):
-#             batch_size, num_point, _ = points_batch.size()
-
-#             points_batch = points_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
-#             features_batch = features_batch.float().permute(0, 2, 1).cuda(non_blocking=True)
-#             labels_batch = labels_batch.long().cuda(non_blocking=True)
-            
-#             seg_pred = model(points_batch, features_batch)         
-#             batch_shapeious = compute_overall_iou(seg_pred, labels_batch, n_classes)
-#             shape_ious += batch_shapeious
-
-#             pred_choice = seg_pred.data.max(2)[1]
-#             for cls in range(n_classes):
-#                 gt_mask   = (labels_batch == cls)
-#                 pred_mask = (pred_choice == cls)
-#                 intersection = (gt_mask & pred_mask).sum().item()
-#                 union        = (gt_mask | pred_mask).sum().item()
-#                 if union > 0:
-#                     per_class_iou[cls]  += intersection / union
-#                     per_class_seen[cls] += 1
-
-#             pred_flat = seg_pred.view(-1, n_classes).data.max(1)[1]
-#             correct = pred_flat.eq(labels_batch.view(-1)).cpu().sum()
-#             accuracy.append(correct.item() / (batch_size * num_point))
-
-#     for cls in range(n_classes):
-#         if per_class_seen[cls] > 0:
-#             per_class_iou[cls] /= per_class_seen[cls]
-#         io.cprint('%s iou: %.5f' % (labels_classes[cls], per_class_iou[cls]))
-
-#     io.cprint('Test acc: %.5f  class mIoU: %.5f  instance mIoU: %.5f' % (
-#         np.mean(accuracy), np.mean(per_class_iou), np.mean(shape_ious)))
 
 
 if __name__ == "__main__":

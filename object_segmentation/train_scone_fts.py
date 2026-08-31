@@ -21,21 +21,8 @@ import shutil
 import yaml
 from types import SimpleNamespace
 
-DATA_PATH = Path("/home/danish/lobster/ml/data/shapenet/shapenet_partials_mixed.h5")
-BACKBONE_DIR = Path("/home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationMedium_2026-07-09_16-09")
-with open(BACKBONE_DIR / "config.yaml", 'r') as f:
-    config_backbone = yaml.safe_load(f)
-    args_backbone = SimpleNamespace(**config_backbone)
 
-device = torch.device("cuda")
-
-backbone = models.__dict__[args_backbone.model](4, args_backbone.num_points, 3)
-checkpoint = torch.load(BACKBONE_DIR / "best_insiou_model.pth", weights_only=False, map_location=device)
-state_dict = checkpoint["model"]
-backbone.load_state_dict(state_dict)
-backbone.to(device)
-
-def feature_loader(data_loader, norm_stats=None):
+def feature_loader(backbone, data_loader, norm_stats=None):
     reference_points = []
     reference_features = []
     combined_points = []
@@ -106,8 +93,6 @@ def main():
     
     if not args.eval:
         shutil.copy(args.config, config_save_path)
-        with open(config_save_path, 'a') as f:
-            f.write(f"\nDATA_PATH: {DATA_PATH}\n")
 
     log_name = checkpoint_dir + '/%s_%s.log' % (args.model, 'test' if args.eval else 'train')
     io = IOStream(log_name)
@@ -145,11 +130,29 @@ def train(args, io):
     device = torch.device("cuda")
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
+    data_path = Path(args.data_path).expanduser().resolve()
+    backbone_dir = Path(args.backbone_dir).expanduser().resolve()
+    
+    with open(backbone_dir / "config.yaml", 'r') as f:
+        config_backbone = yaml.safe_load(f)
+        args_backbone = SimpleNamespace(**config_backbone)
+
+    label_remap = args_backbone.label_remap
+    labels_classes = args_backbone.labels_classes
+    n_classes = len(set(label_remap.values())) if label_remap else 13
+
+    assert len(labels_classes) == n_classes
+
+    backbone = models.__dict__[args_backbone.model](n_classes, args_backbone.num_points, args_backbone.n_inputs).to(device)
+    checkpoint = torch.load(backbone_dir / "best_insiou_model.pth", weights_only=False, map_location=device)
+    state_dict = checkpoint["model"]
+    backbone.load_state_dict(state_dict)
+
     model = models.__dict__[args.model]().to(device)
     model.apply(weight_init)
 
-    train_data_pre = MixedOccupancyDataset(DATA_PATH, split="train", num_points=args.num_points)
-    val_data_pre = MixedOccupancyDataset(DATA_PATH, split="val", num_points=args.num_points)
+    train_data_pre = MixedOccupancyDataset(data_path, split="train", num_points=args.num_points)
+    val_data_pre = MixedOccupancyDataset(data_path, split="val", num_points=args.num_points)
 
     print("Training samples: %d" % len(train_data_pre))
     print("Validation samples: %d" % len(val_data_pre))
@@ -170,8 +173,8 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    train_feature_dataset, norm_stats = feature_loader(train_loader_pre)
-    val_feature_dataset, _ = feature_loader(val_loader_pre, norm_stats)
+    train_feature_dataset, norm_stats = feature_loader(backbone, train_loader_pre)
+    val_feature_dataset, _ = feature_loader(backbone, val_loader_pre, norm_stats)
 
     train_loader = DataLoader(train_feature_dataset, 
                               batch_size=args.batch_size, 

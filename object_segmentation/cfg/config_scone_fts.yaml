@@ -1,4 +1,7 @@
-model: SconeOccSmallFtsEmbed
+model: SconeOccSmallFts
+data_path: /home/danish/lobster/ml/data/shapenet/shapenet_partials_mixed.h5
+backbone_dir: /home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationMedium_2026-07-09_16-09
+
 exp_name: null
 num_points: 1024
 batch_size: 16
