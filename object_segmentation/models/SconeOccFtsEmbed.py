@@ -389,4 +389,4 @@ def SconeOccSmallFtsEmbed(n_fts, **kwargs):
                     dropout=None,
                     offset=False,
                     fts_dim=n_fts,
-                    fts_embedding_dim=64)
+                    fts_embedding_dim=32)

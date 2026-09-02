@@ -71,18 +71,8 @@ def feature_loader(backbone, dataset, n_feats):
     combined_features = np.concatenate(combined_features, axis=0)
     combined_labels = np.concatenate(combined_labels, axis=0)
 
-    if norm_stats is None:
-        all_features = np.concatenate([reference_features, combined_features], axis=1)
-        mean = all_features.mean(axis=(0, 1), keepdims=True)
-        std = all_features.std(axis=(0, 1), keepdims=True) + 1e-6
-        norm_stats = (mean, std)
-
-    # mean, std = norm_stats
-    # reference_features = (reference_features - mean) / std
-    # combined_features = (combined_features - mean) / std
-
     data = [reference_points, reference_features, combined_points, combined_features, combined_labels]
-    return SimpleDataset(data), norm_stats
+    return SimpleDataset(data)
 
 
 def _empty_history():
@@ -191,8 +181,8 @@ def train(args, io):
     #                           pin_memory=True, 
     #                           persistent_workers=True)
     
-    train_feature_dataset, _  = feature_loader(backbone, train_data_pre, n_feats)
-    val_feature_dataset, _ = feature_loader(backbone, val_data_pre, n_feats)
+    train_feature_dataset = feature_loader(backbone, train_data_pre, n_feats)
+    val_feature_dataset = feature_loader(backbone, val_data_pre, n_feats)
 
     train_loader = DataLoader(train_feature_dataset, 
                               batch_size=args.batch_size, 
