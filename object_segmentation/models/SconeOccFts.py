@@ -320,8 +320,8 @@ class SconeOcc(nn.Module):
         return res.view(n_clouds, n_sample, self.output_dim)
     
 
-def SconeOccOGFts():
-    return SconeOcc(seq_len=2048, 
+def SconeOccOGFts(n_fts=None, **kwargs):
+    return SconeOcc(seq_len=2048,
                     pts_dim=3, 
                     pts_embedding_dim=128,
                     concatenate_input=True,
@@ -339,8 +339,8 @@ def SconeOccOGFts():
                     dropout=None,
                     offset=True)
 
-def SconeOccSmallFts():
-    return SconeOcc(seq_len=1024, 
+def SconeOccSmallFts(n_fts=None, **kwargs):
+    return SconeOcc(seq_len=1024,
                     pts_dim=3, 
                     pts_embedding_dim=64,
                     concatenate_input=True,

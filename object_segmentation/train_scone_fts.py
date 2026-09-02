@@ -23,7 +23,6 @@ from types import SimpleNamespace
 import open3d as o3d
 
 def points_to_feature_vector(points):
-    points_norm = MixedOccupancyDataset.normlize_unit_sphere(points)
     pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
     pcd.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
@@ -31,10 +30,11 @@ def points_to_feature_vector(points):
 
     normals = np.asarray(pcd.normals)
 
-    feature_vector = np.concatenate([points_norm, normals], axis=1)
+    feature_vector = np.concatenate([points, normals], axis=1)
     return feature_vector
 
-def through_backbone(backbone, points):
+def through_backbone(backbone, points, n_feats):
+    points = MixedOccupancyDataset.normlize_unit_sphere(points)
     feature_vector = points_to_feature_vector(points)
     points_tensor = torch.tensor(np.array([points])).float().permute(0, 2, 1).cuda(non_blocking=True)
     features_tensor = torch.tensor(np.array([feature_vector])).float().permute(0, 2, 1).cuda(non_blocking=True)
@@ -43,10 +43,11 @@ def through_backbone(backbone, points):
         points_out = backbone.encoder(points_tensor, features_tensor)
         features = backbone.seg_head.decode(points_out).permute(0, 2, 1).cpu().numpy()
 
-    return points_tensor.permute(0, 2, 1).cpu(), features_tensor.permute(0, 2, 1).cpu(), features[:, :, :128]
+    n_feats = None if n_feats <= 0 else n_feats
+    return points_tensor.permute(0, 2, 1).cpu(), features_tensor.permute(0, 2, 1).cpu(), features[:, :, :n_feats]
 
 
-def feature_loader(backbone, dataset, norm_stats=None):
+def feature_loader(backbone, dataset, n_feats):
     reference_points = []
     reference_features = []
     combined_points = []
@@ -55,8 +56,8 @@ def feature_loader(backbone, dataset, norm_stats=None):
 
     with torch.no_grad():
         for reference, _, _, _, combined, labels in tqdm(dataset, total=len(dataset), smoothing=0.9):
-            reference_xyz_tensor, _, features_reference = through_backbone(backbone, reference)
-            combined_xyz_tensor, _, features_combined = through_backbone(backbone, combined)
+            reference_xyz_tensor, _, features_reference = through_backbone(backbone, reference, n_feats)
+            combined_xyz_tensor, _, features_combined = through_backbone(backbone, combined, n_feats)
 
             reference_points.append(reference_xyz_tensor)
             reference_features.append(features_reference)
@@ -145,9 +146,9 @@ def train(args, io):
     checkpoint_dir = 'checkpoints/occupancy/%s' % args.exp_name
 
     data_path = Path(args.data_path).expanduser().resolve()
-    backbone_dir = Path(args.backbone_dir).expanduser().resolve()
+    backbone_eval = Path(args.backbone_eval).expanduser().resolve()
     
-    with open(backbone_dir / "config.yaml", 'r') as f:
+    with open(backbone_eval / "config.yaml", 'r') as f:
         config_backbone = yaml.safe_load(f)
         args_backbone = SimpleNamespace(**config_backbone)
 
@@ -158,13 +159,15 @@ def train(args, io):
     assert len(labels_classes) == n_classes
 
     backbone = models.__dict__[args_backbone.model](n_classes, args_backbone.num_points, args_backbone.n_inputs).to(device)
-    checkpoint = torch.load(backbone_dir / "best_insiou_model.pth", weights_only=False, map_location=device)
+    checkpoint = torch.load(backbone_eval / "best_insiou_model.pth", weights_only=False, map_location=device)
     state_dict = checkpoint["model"]
     backbone.load_state_dict(state_dict)
     backbone.eval()
 
-    model = models.__dict__[args.model]().to(device)
+    model = models.__dict__[args.model](n_fts=args.n_feats).to(device)
     model.apply(weight_init)
+
+    n_feats = args.n_feats
 
     train_data_pre = MixedOccupancyDataset(data_path, split="train", num_points=args.num_points)
     val_data_pre = MixedOccupancyDataset(data_path, split="val", num_points=args.num_points)
@@ -188,8 +191,8 @@ def train(args, io):
     #                           pin_memory=True, 
     #                           persistent_workers=True)
     
-    train_feature_dataset, _  = feature_loader(backbone, train_data_pre)
-    val_feature_dataset, _ = feature_loader(backbone, val_data_pre)
+    train_feature_dataset, _  = feature_loader(backbone, train_data_pre, n_feats)
+    val_feature_dataset, _ = feature_loader(backbone, val_data_pre, n_feats)
 
     train_loader = DataLoader(train_feature_dataset, 
                               batch_size=args.batch_size, 
