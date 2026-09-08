@@ -1,12 +1,14 @@
 import h5py
 import numpy as np
 from tqdm import tqdm
-from torch.utils.data import Dataset
 from scipy.spatial import KDTree
 import open3d as o3d
+
+from .base_dataset import BaseDataSet
 from .octomap_handler import OctomapHandler
 
-class S3DISDataset(Dataset):
+
+class S3DISDataset(BaseDataSet):
     def __init__(self, 
                  h5_paths=[], 
                  noise_std=0.0,

@@ -1,6 +1,7 @@
-from torch.utils.data import Dataset
+from .base_dataset import BaseDataSet
 
-class SimpleDataset(Dataset):
+
+class SimpleDataset(BaseDataSet):
     def __init__(self, data):
         super().__init__()
 
