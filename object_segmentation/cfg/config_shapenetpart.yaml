@@ -1,0 +1,25 @@
+model: pointMLPSegmentationMedium
+
+n_inputs: 6
+n_classes: 50
+data_path: /home/danish/lobster/ml/data/shapenet/shapenetpart.h5
+
+exp_name: null
+batch_size: 64
+test_batch_size: 64
+epochs: 250
+
+noise_std: 0.05
+num_points: 1024
+normalize: true
+
+use_sgd: false
+scheduler: step
+step: 40
+lr: 0.003
+momentum: 0.9
+manual_seed: null
+eval: false
+workers: 12
+resume: false
+model_type: insiou
