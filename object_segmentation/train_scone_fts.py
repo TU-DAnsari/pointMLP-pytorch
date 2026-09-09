@@ -142,11 +142,14 @@ def train(args, io):
         config_backbone = yaml.safe_load(f)
         args_backbone = SimpleNamespace(**config_backbone)
 
-    label_remap = args_backbone.label_remap
-    labels_classes = args_backbone.labels_classes
-    n_classes = len(set(label_remap.values())) if label_remap else 13
+    try:
+        label_remap = args_backbone.label_remap
+        labels_classes = args_backbone.labels_classes
+        n_classes = len(set(label_remap.values())) if label_remap else 13
+        assert len(labels_classes) == n_classes
+    except AttributeError:
+        n_classes = args_backbone.n_classes
 
-    assert len(labels_classes) == n_classes
 
     backbone = models.__dict__[args_backbone.model](n_classes, args_backbone.num_points, args_backbone.n_inputs).to(device)
     checkpoint = torch.load(backbone_eval / "best_insiou_model.pth", weights_only=False, map_location=device)

@@ -4,7 +4,7 @@ from collections import defaultdict
 import torch
 from torch.utils.data import Dataset
 
-from base_dataset import BaseDataSet
+from .base_dataset import BaseDataSet
 
 
 class MixedOccupancyDataset(BaseDataSet):

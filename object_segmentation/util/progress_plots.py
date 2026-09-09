@@ -88,7 +88,7 @@ def save_plots(history, checkpoint_dir, labels_classes):
 
         for cls_idx, cls_name in enumerate(labels_classes):
             ax.plot(epochs, per_class[:, cls_idx],
-                    label=cls_name,
+                    label=str(cls_name),
                     color=_CLASS_COLORS[cls_idx % len(_CLASS_COLORS)],
                     linewidth=1.5)
 
