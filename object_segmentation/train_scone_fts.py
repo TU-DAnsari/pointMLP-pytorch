@@ -152,7 +152,10 @@ def train(args, io):
 
 
     backbone = models.__dict__[args_backbone.model](n_classes, args_backbone.num_points, args_backbone.n_inputs).to(device)
-    checkpoint = torch.load(backbone_eval / "best_insiou_model.pth", weights_only=False, map_location=device)
+    try:    
+        checkpoint = torch.load(backbone_eval / "best_insiou_model.pth", weights_only=False, map_location=device)
+    except: 
+        checkpoint = torch.load(backbone_eval / "untrained_model.pth", weights_only=False, map_location=device)
     state_dict = checkpoint["model"]
     backbone.load_state_dict(state_dict)
     backbone.eval()

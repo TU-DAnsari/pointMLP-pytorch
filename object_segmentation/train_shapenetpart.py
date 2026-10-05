@@ -160,6 +160,10 @@ def train(args, io):
 
     history = _empty_history()
 
+    torch.save({'model': model.module.state_dict() if torch.cuda.device_count() > 1 else model.state_dict(),
+                                'optimizer': opt.state_dict(), 'epoch': 0, 'test_class_iou': 0.0},
+                                f'{checkpoint_dir}/untrained_model.pth')
+
     for epoch in range(args.epochs):
         train_metrics = train_epoch(args, train_loader, class_weights, model, opt, scheduler, epoch, io, ntk_params=None)
         test_metrics, per_class_iou = test_epoch(args, val_loader, model, class_weights, epoch, io)
