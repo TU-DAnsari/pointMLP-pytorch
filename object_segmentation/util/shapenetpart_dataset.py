@@ -39,8 +39,6 @@ class ShapeNetPartDataset(BaseDataSet):
             normals_current = normals[rows, chosen]
             labels_current = labels_seg[rows, chosen]
 
-            print(points_current.shape)
-
             if noise_std > 0.0:
                 noise = np.stack([
                     rng_sampling.normal(scale=noise_std, size=points_current.shape[1:])
