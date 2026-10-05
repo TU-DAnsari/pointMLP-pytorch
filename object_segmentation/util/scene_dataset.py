@@ -93,10 +93,8 @@ class SceneDataset(BaseDataSet):
         z = points[:, 2]
         z_mean = z.mean()
 
-        z_size = 4 * np.max([z.max() - z_mean, z_mean - z.min()])
-
+        z_size = 2 * np.max([z.max() - z_mean, z_mean - z.min()])
         centers = np.concatenate([centers, z_mean * np.ones((centers.shape[0], 1))], axis=1)
-
 
         point_blocks = []
         feature_blocks = []
@@ -128,7 +126,7 @@ class SceneDataset(BaseDataSet):
             normals_in_block = np.asarray(pcd.normals)
 
             if normalize:
-                features_in_block = np.concatenate([self.normalize_xyz(points_in_block), normals_in_block], axis=1)
+                features_in_block = np.concatenate([self.normlize_unit_sphere(points_in_block), normals_in_block], axis=1)
             else:
                 features_in_block = np.concatenate([points_in_block, normals_in_block], axis=1)
 
@@ -138,25 +136,6 @@ class SceneDataset(BaseDataSet):
             label_blocks.append(labels_in_block)
 
         return point_blocks, feature_blocks, label_blocks
-    
-    
-    @staticmethod
-    def normalize_xyz(points):
-
-        points_normalized = points - points.mean(axis=0)
-        maxes = points_normalized.max(axis=0)
-        mins = points_normalized.min(axis=0)
-        points_normalized = (points_normalized - mins) / ((maxes - mins) + 1e-8)
-
-        return points_normalized
-
-    @staticmethod
-    def normlize_unit_sphere(points):
-        points_normalized = points - points.mean(axis=0)
-        scale = np.linalg.norm(points_normalized, axis=1).max()
-        points_normalized = points_normalized / (scale + 1e-8)
-
-        return points_normalized
 
     def __len__(self):
         return len(self.point_blocks)

@@ -11,7 +11,7 @@ from .octomap_handler import OctomapHandler
 class S3DISDataset(BaseDataSet):
     def __init__(self, 
                  h5_paths=[], 
-                 noise_std=0.0,
+                 noise_std=-1,
                  num_points=1024, 
                  min_points=256,
                  voxel_size=0.1,
@@ -37,7 +37,7 @@ class S3DISDataset(BaseDataSet):
                 labels = np.asarray(f["semantic_labels"], dtype=np.float32)
 
                 if noise_std > 0.0:
-                                    points += rng_sampling.normal(scale=noise_std, size=points.shape)
+                    points += rng_sampling.normal(scale=noise_std, size=points.shape)
 
                 point_blocks, feature_blocks, label_blocks = self.data_to_blocks(points=points,
                                                                                  labels=labels,
@@ -95,8 +95,6 @@ class S3DISDataset(BaseDataSet):
         feature_blocks = []
         label_blocks = []
 
-        print("centers: ", centers.shape)
-
         for center in centers:
 
             points_in_block, _ = octree_handler.get_bbox_points(middle=center, extent=np.array([block_size, block_size, z_size]))
@@ -133,25 +131,6 @@ class S3DISDataset(BaseDataSet):
             label_blocks.append(labels_in_block)
 
         return point_blocks, feature_blocks, label_blocks
-
-
-    @staticmethod
-    def normalize_xyz(points):
-
-        points_normalized = points - points.mean(axis=0)
-        maxes = points_normalized.max(axis=0)
-        mins = points_normalized.min(axis=0)
-        points_normalized = (points_normalized - mins) / (maxes - mins + 1e-5)
-
-        return points_normalized
-    
-    @staticmethod
-    def normlize_unit_sphere(points):
-        points_normalized = points - points.mean(axis=0)
-        scale = np.linalg.norm(points_normalized, axis=1).max()
-        points_normalized = points_normalized / (scale + 1e-8)
-
-        return points_normalized
 
     def __len__(self):
         return len(self.point_blocks)

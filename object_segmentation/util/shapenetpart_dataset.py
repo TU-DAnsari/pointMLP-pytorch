@@ -10,6 +10,7 @@ class ShapeNetPartDataset(BaseDataSet):
                  h5_path,
                  split="train",
                  num_points=1024,
+                 noise_std=-1.0,
                  seed=42,
                 ):
         
@@ -34,17 +35,32 @@ class ShapeNetPartDataset(BaseDataSet):
             ])
             rows = np.arange(n_instances)[:, None]
 
-            sampled_points = points[rows, chosen]
-            sampled_normals = normals[rows, chosen]
-            sampled_labels = labels_seg[rows, chosen]
+            points_current = points[rows, chosen]
+            normals_current = normals[rows, chosen]
+            labels_current = labels_seg[rows, chosen]
 
-            self.points.append(sampled_points)
-            self.features.append(np.concatenate([sampled_points, sampled_normals], axis=-1))
-            self.labels.append(sampled_labels)
+            print(points_current.shape)
+
+            if noise_std > 0.0:
+                noise = np.stack([
+                    rng_sampling.normal(scale=noise_std, size=points_current.shape[1:])
+                    for _ in range(n_instances)
+                ])
+                points_current += noise
+
+                normals_current = []
+                for i in range(n_instances):
+                    normals_current.append(BaseDataSet.calc_normals(points_current[i]))
+                normals_current = np.array(normals_current)
+
+            self.points.append(points_current)
+            self.features.append(np.concatenate([points_current, normals_current], axis=-1))
+            self.labels.append(labels_current)
 
         self.points = np.array(self.points)[0]
         self.features = np.array(self.features)[0]
         self.labels = np.array(self.labels)[0]
+
 
     def __len__(self):
         return len(self.labels)

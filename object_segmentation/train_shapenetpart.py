@@ -100,6 +100,7 @@ def train(args, io):
     train_data = ShapeNetPartDataset(data_path,
                                      num_points=args.num_points,
                                      split="train",
+                                     noise_std=args.noise_std,
                                      )
 
     val_data = ShapeNetPartDataset(data_path,

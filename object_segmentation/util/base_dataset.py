@@ -3,10 +3,21 @@ import numpy as np
 from collections import defaultdict
 import torch
 from torch.utils.data import Dataset
+import open3d as o3d
 
 class BaseDataSet(Dataset):
     def __init__(self):
         super().__init__()
+
+    @staticmethod
+    def calc_normals(points):
+        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+        pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+        )
+        normals = np.asarray(pcd.normals)
+
+        return normals
 
     @staticmethod
     def normlize_unit_sphere(points):
