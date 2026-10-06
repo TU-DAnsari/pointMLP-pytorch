@@ -11,7 +11,7 @@ from .octomap_handler import OctomapHandler
 class S3DISDataset(BaseDataSet):
     def __init__(self, 
                  h5_paths=[], 
-                 noise_std=-1,
+                 noise_std=-1.0,
                  num_points=1024, 
                  min_points=256,
                  voxel_size=0.1,

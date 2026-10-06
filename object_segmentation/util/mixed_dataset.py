@@ -13,6 +13,7 @@ class MixedOccupancyDataset(BaseDataSet):
                  split="train", 
                  num_points=1024,
                  seed=42,
+                 noise_std=-1.0,
                 ):
         
         super().__init__()
@@ -29,7 +30,7 @@ class MixedOccupancyDataset(BaseDataSet):
             mixed_points = np.asarray(g["mixed_points"], dtype=np.float32)
             mixed_labels = np.asarray(g["mixed_labels"], dtype=np.float32)
 
-        _, n_pts_reference, _ = reference_partials.shape
+        n_instances, n_pts_reference, _ = reference_partials.shape
         _, n_pts_mixed, _ = mixed_points.shape
 
         idx_reference = rng_sampling.choice(n_pts_reference, num_points, replace=n_pts_reference < num_points)
@@ -40,6 +41,15 @@ class MixedOccupancyDataset(BaseDataSet):
         self.others = others[:, idx_reference, :]
         self.other_partials = other_partials[:, idx_reference, :]
         self.mixed_points = mixed_points[:, idx_mixed, :]
+
+        if noise_std > 0.0:
+            for data in [self.references, self.reference_partials, self.others, self.other_partials, self.mixed_points]:
+                noise = np.stack([
+                    rng_sampling.normal(scale=noise_std, size=data.shape[1:])
+                    for _ in range(n_instances)
+                ])
+                data += noise
+
         self.mixed_labels = mixed_labels[:, idx_mixed]
 
     # @staticmethod
