@@ -165,8 +165,18 @@ def train(args, io):
 
     n_feats = args.n_feats
 
-    train_data_pre = MixedOccupancyDataset(data_path, split="train", num_points=args.num_points)
-    val_data_pre = MixedOccupancyDataset(data_path, split="val", num_points=args.num_points)
+    train_data_pre = MixedOccupancyDataset(data_path, 
+                                           split="train", 
+                                           num_points=args.num_points,
+                                           zero_ref_prob=args.zero_ref_prob,
+                                           ref_frac_range=args.ref_frac_range,
+                                           )
+    val_data_pre = MixedOccupancyDataset(data_path, 
+                                         split="val", 
+                                         num_points=args.num_points,
+                                         zero_ref_prob=args.zero_ref_prob,
+                                         ref_frac_range=args.ref_frac_range,
+                                         )
 
     print("Training samples: %d" % len(train_data_pre))
     print("Validation samples: %d" % len(val_data_pre))

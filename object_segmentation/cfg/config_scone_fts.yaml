@@ -8,6 +8,10 @@ n_feats: 128
 
 exp_name: null
 num_points: 1024
+
+zero_ref_prob: 0.25
+ref_frac_range: [0.0, 1.0]
+
 batch_size: 16
 test_batch_size: 16
 epochs: 250

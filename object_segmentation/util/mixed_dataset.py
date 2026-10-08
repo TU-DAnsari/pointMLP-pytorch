@@ -14,9 +14,15 @@ class MixedOccupancyDataset(BaseDataSet):
                  num_points=1024,
                  seed=42,
                  noise_std=-1.0,
+                 zero_ref_prob=0.1,          # share of mixes with NO reference points
+                 ref_frac_range=(0.0, 1.0),  # range for the positive reference fraction
                 ):
         
         super().__init__()
+
+        self.num_points = num_points
+        self.zero_ref_prob = zero_ref_prob
+        self.ref_frac_range = ref_frac_range
 
         rng_sampling = np.random.default_rng(seed=seed)
 
@@ -27,45 +33,68 @@ class MixedOccupancyDataset(BaseDataSet):
             reference_partials = np.asarray(g["reference_partials"], dtype=np.float32)
             others = np.asarray(g["other_points"], dtype=np.float32)
             other_partials = np.asarray(g["other_partials"], dtype=np.float32)
-            mixed_points = np.asarray(g["mixed_points"], dtype=np.float32)
-            mixed_labels = np.asarray(g["mixed_labels"], dtype=np.float32)
 
         n_instances, n_pts_reference, _ = reference_partials.shape
-        _, n_pts_mixed, _ = mixed_points.shape
+        _, n_pts_other, _ = other_partials.shape
 
         idx_reference = rng_sampling.choice(n_pts_reference, num_points, replace=n_pts_reference < num_points)
-        idx_mixed = rng_sampling.choice(n_pts_mixed, num_points, replace=n_pts_mixed < num_points)
+        idx_other = rng_sampling.choice(n_pts_other, num_points, replace=n_pts_other < num_points)
 
         self.references = references[:, idx_reference, :]
         self.reference_partials = reference_partials[:, idx_reference, :]
-        self.others = others[:, idx_reference, :]
-        self.other_partials = other_partials[:, idx_reference, :]
-        self.mixed_points = mixed_points[:, idx_mixed, :]
+        self.others = others[:, idx_other, :]
+        self.other_partials = other_partials[:, idx_other, :]
 
         if noise_std > 0.0:
-            for data in [self.references, self.reference_partials, self.others, self.other_partials, self.mixed_points]:
-                noise = np.stack([
-                    rng_sampling.normal(scale=noise_std, size=data.shape[1:])
-                    for _ in range(n_instances)
-                ])
-                data += noise
+            for data in [self.references, self.reference_partials, self.others, self.other_partials]:
+                data += rng_sampling.normal(scale=noise_std, size=data.shape)
 
-        self.mixed_labels = mixed_labels[:, idx_mixed]
+        self.ref_fracs = self._fixed_fractions(rng_sampling, n_instances)
 
-    # @staticmethod
-    # def normlize_unit_sphere(points):
-    #     points_normalized = points - points.mean(axis=0)
-    #     scale = np.linalg.norm(points_normalized, axis=1).max()
-    #     points_normalized = points_normalized / (scale + 1e-8)
-    #     return points_normalized
+        mixed = [self._build_mixed(i, self.ref_fracs[i], rng_sampling) for i in range(n_instances)]
+        self.mixed_points = np.stack([m[0] for m in mixed])
+        self.mixed_labels = np.stack([m[1] for m in mixed])
 
-    # @staticmethod
-    # def normalize_xyz(points):
-    #     points_normalized = points - points.mean(axis=0)
-    #     maxes = points_normalized.max(axis=0)
-    #     mins = points_normalized.min(axis=0)
-    #     points_normalized = (points_normalized - mins) / (maxes - mins + 1e-5)
-    #     return points_normalized
+    # ------------------------------------------------------------------ #
+    def _fixed_fractions(self, rng, n_instances):
+        """Deterministic split: exactly round(zero_ref_prob * N) instances (at least 1) get fraction 0."""
+        lo, hi = self.ref_frac_range
+        fracs = rng.uniform(lo, hi, size=n_instances).astype(np.float32)
+        if self.zero_ref_prob > 0:
+            n_zero = max(1, int(round(self.zero_ref_prob * n_instances)))
+            zero_idx = rng.choice(n_instances, n_zero, replace=False)
+            fracs[zero_idx] = 0.0
+        return fracs
+
+    def _sample_fraction(self, rng):
+        """Per-access fraction for training: 0 with prob zero_ref_prob, else uniform in range."""
+        if rng.random() < self.zero_ref_prob:
+            return 0.0
+        lo, hi = self.ref_frac_range
+        return rng.uniform(lo, hi)
+
+    def _build_mixed(self, index, frac, rng):
+        n = self.num_points
+        n_ref = int(round(frac * n))
+        if frac > 0:
+            n_ref = max(n_ref, 1)  # keep "positive fraction" truly positive
+        n_other = n - n_ref
+
+        ref_idx = rng.choice(self.reference_partials.shape[1], n_ref, replace=False)
+        other_idx = rng.choice(self.other_partials.shape[1], n_other, replace=False)
+
+        points = np.concatenate([
+            self.reference_partials[index, ref_idx],
+            self.other_partials[index, other_idx],
+        ], axis=0)
+        labels = np.concatenate([
+            np.ones(n_ref, dtype=np.float32),
+            np.zeros(n_other, dtype=np.float32),
+        ])
+
+        perm = rng.permutation(n)
+        return points[perm], labels[perm]
+
 
     def __len__(self):
         return len(self.references)
