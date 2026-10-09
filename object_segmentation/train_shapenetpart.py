@@ -106,6 +106,7 @@ def train(args, io):
     val_data = ShapeNetPartDataset(data_path,
                                    num_points=args.num_points,
                                    split="val",
+                                   noise_std=args.noise_std,
                                    )
 
     print("Training samples: %d" % len(train_data))
