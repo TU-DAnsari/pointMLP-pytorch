@@ -7,3 +7,4 @@ from .SconeOcc import SconeOccOG, SconeOccSmall
 from .SconeOccFts import SconeOccOGFts, SconeOccSmallFts
 from .SconeOccFtsEmbed import SconeOccSmallFtsEmbed
 from .SconeOccFtsDst import SconeOccFtsDst
+from .SconeOccFtsLcl import SconeOccFtsLcl

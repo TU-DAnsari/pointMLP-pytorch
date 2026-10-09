@@ -194,7 +194,6 @@ class SconeOcc(nn.Module):
 
         self.local_feature_dim = local_feature_dim
         self.all_feature_size = self.x_embedding_dim \
-                                + self.n_scale * self.local_feature_dim \
                                 + self.n_scale * self.local_feature_dim
 
         # Local point cloud transformers
@@ -256,22 +255,16 @@ class SconeOcc(nn.Module):
         # kNN computation for local embedding
         down_sampled_pc = pc
         down_sampled_pc_fts = pc_fts
-        down_sampled_x = x
-        down_sampled_x_fts = x_fts
         local_pc_transformed = []
-        local_x_transformed = []
+        
         for n_transformer in range(self.n_scale):
             local_transformer = self.local_transformers[n_transformer]
             # Get kNN points in down sampled pc
             local_pc_idx = get_knn_idx(x_fts, down_sampled_pc_fts, self.k_for_knn)
             local_pc = knn_gather(down_sampled_pc, local_pc_idx)
 
-            local_x_idx = get_knn_idx(pc_fts, down_sampled_x_fts, self.k_for_knn)
-            local_x = knn_gather(down_sampled_x, local_x_idx)
-
             # Compute features
             local_pc_transformed += [local_transformer(local_pc.view(-1, self.k_for_knn, 3), mask=mask)]
-            local_x_transformed += [local_transformer(local_x.view(-1, self.k_for_knn, 3), mask=mask)]
 
             # Down sample pc and its features with the same indices
             if n_transformer < self.n_scale - 1:
@@ -280,24 +273,17 @@ class SconeOcc(nn.Module):
                 down_sampled_pc = down_sampled_pc[:, perm]
                 down_sampled_pc_fts = down_sampled_pc_fts[:, perm]
 
-                ds_seq_len = down_sampled_x.shape[1]
-                perm = torch.randperm(ds_seq_len, device=pc.device)[:ds_seq_len // ds_factor]
-                down_sampled_x = down_sampled_x[:, perm]
-                down_sampled_x_fts = down_sampled_x_fts[:, perm]
-
         if self.n_scale > 0:
             local_pc_features = torch.cat(local_pc_transformed, dim=-1)
-            local_x_features = torch.cat(local_x_transformed, dim=-1)
 
         local_pc_features = local_pc_features.view(n_clouds, n_sample, self.n_scale * self.local_feature_dim)
-        local_x_features = local_x_features.view(n_clouds, n_sample, self.n_scale * self.local_feature_dim)
 
         # -----X encoding-----
         x_features = self.x_embedding(x)
         x_features = x_features.view(n_clouds, n_sample, self.x_embedding_dim)
 
         # -----Occupancy prediction-----
-        res = torch.cat((local_pc_features, local_x_features, x_features), dim=-1)
+        res = torch.cat((local_pc_features, x_features), dim=-1)
         res = self.non_linear1(self.linear1(res))
         res = self.non_linear2(self.linear2(res))
         res = self.linear3(res)
@@ -305,7 +291,7 @@ class SconeOcc(nn.Module):
         return res.view(n_clouds, n_sample, self.output_dim)
 
 
-def SconeOccFtsDst(n_fts=None, **kwargs):
+def SconeOccFtsLcl(n_fts=None, **kwargs):
     return SconeOcc(pts_dim=3,
                     pts_embedding_dim=64,
                     concatenate_input=True,
