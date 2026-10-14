@@ -1,45 +1,7 @@
 import torch.nn.functional as F
 from .Attention import *
 from .utils import get_knn_points, get_knn_idx
-from pytorch3d.ops import knn_gather
-
-
-class XEmbedding(nn.Module):
-    def __init__(self, x_dim, x_embedding_dim, dropout=None, gelu=True):
-        """
-        Neural module for individual 3D point embedding using fully connected layers.
-
-        :param x_dim: (int) Dimension of input 3D points. Usually, x_dim=3.
-        :param x_embedding_dim: (int) Dimension of output embeddings.
-        :param dropout: Dropout module to apply on computed features.
-        :param gelu: (bool) If True, the model uses GELU non-linearity. Else, it uses ReLU.
-        """
-        super(XEmbedding, self).__init__()
-
-        self.linear1 = nn.Linear(x_dim, x_embedding_dim // 4)
-        # self.fc1 = nn.Linear(3*2*self.n_harmonic_functions, self.x_embd_size//2)
-        self.linear2 = nn.Linear(x_embedding_dim // 4, x_embedding_dim // 2)
-        self.linear3 = nn.Linear(x_embedding_dim // 2, x_embedding_dim)
-
-        if gelu:
-            self.non_linear1 = nn.GELU()
-            self.non_linear2 = nn.GELU()
-            self.non_linear3 = nn.GELU()
-        else:
-            self.non_linear1 = nn.ReLU(inplace=False)
-            self.non_linear2 = nn.ReLU(inplace=False)
-            self.non_linear3 = nn.ReLU(inplace=False)
-
-        self.dropout = nn.Dropout(dropout) if dropout is not None else None
-
-    def forward(self, x):
-        res = self.non_linear1(self.linear1(x))
-        res = self.non_linear2(self.linear2(res))
-        res = self.non_linear3(self.linear3(res))
-
-        res = res if self.dropout is None else self.dropout(res)
-
-        return res
+from pytorch3d.ops import knn_gather, sample_farthest_points
 
 
 class PCTransformer(nn.Module):
@@ -135,10 +97,9 @@ class SconeOcc(nn.Module):
                  concatenate_input=True,
                  n_code=2, n_heads=4, FF=True, gelu=True,
                  n_scale=3, local_feature_dim=256, k_for_knn=16,
-                 x_dim=3, x_embedding_dim=512,
+                 x_dim=3,
                  output_dim=1,
-                 dropout=None,
-                 offset=True):
+                 dropout=None):
         """
         Main class for SCONE's occupancy probability prediction module.
         A neural model that predicts a vector field as an implicit function, depending on an input point cloud.
@@ -158,12 +119,8 @@ class SconeOcc(nn.Module):
         :param local_feature_dim: (int) Dimension of point cloud neighborhood features.
         :param k_for_knn: (int) Number of neighbors to use when computing a neighborhood feature.
         :param x_dim: (int) Dimension of query point x.
-        :param x_embedding_dim: (int) Dimension of x embedding.
         :param output_dim: (int) Dimension of the output vector field.
         :param dropout: Dropout module to apply on computed embeddings.
-        :param offset: (bool) If True, the model uses the offset between a point and its neighbors rather than
-        the coordinates of the neighbors to compute neighborhood features.
-        This parameter should always be True, since it leads to far better performances.
         """
         super(SconeOcc, self).__init__()
 
@@ -179,7 +136,6 @@ class SconeOcc(nn.Module):
         self.n_scale = n_scale
 
         self.x_dim = x_dim
-        self.x_embedding_dim = x_embedding_dim
 
         self.output_dim = output_dim
 
@@ -188,13 +144,17 @@ class SconeOcc(nn.Module):
         self.encoding_dim = pts_embedding_dim
 
         self.k_for_knn = k_for_knn
-        self.offset = offset
-        if self.offset:
-            print("Offset set to True.")
 
         self.local_feature_dim = local_feature_dim
-        self.all_feature_size = self.x_embedding_dim \
-                                + self.n_scale * self.local_feature_dim
+        self.all_feature_size = self.n_scale * self.local_feature_dim
+
+        self.ds_factor = 4                                   # same for both clouds
+        self.tau = nn.Parameter(torch.tensor(0.1))           # softmax temperature for matches
+        geo_dim = self.n_scale * self.local_feature_dim
+        self.seg_head = nn.Sequential(
+            nn.Linear(3 * geo_dim + self.k_for_knn, 256), nn.GELU(),
+            nn.Linear(256, 128), nn.GELU(),
+            nn.Linear(128, self.output_dim))
 
         # Local point cloud transformers
         local_transformers = []
@@ -205,10 +165,6 @@ class SconeOcc(nn.Module):
                                                  n_code=n_code, n_heads=n_heads, FF=FF, gelu=gelu,
                                                  dropout=dropout)]
         self.local_transformers = nn.ModuleList(local_transformers)
-
-        # X embedding
-        self.x_embedding = XEmbedding(x_dim=x_dim, x_embedding_dim=x_embedding_dim,
-                                      dropout=dropout, gelu=gelu)
 
         # Point cloud feature extraction
         self.max_pool = nn.functional.max_pool1d  # kernel_size will be <= seq_len
@@ -228,6 +184,22 @@ class SconeOcc(nn.Module):
             self.non_linear2 = nn.ReLU(inplace=False)
             self.non_linear3 = nn.ReLU(inplace=False)
 
+    def multiscale_geometry(self, cloud):
+        """Spatial multi-scale descriptors for every point. cloud: (B, N, 3) -> (B, N, n_scale * D)"""
+        B, N, _ = cloud.shape
+        ds = cloud
+        feats = []
+        for s in range(self.n_scale):
+            idx = get_knn_idx(cloud, ds, self.k_for_knn)              # spatial neighbors in own cloud
+            nbrs = knn_gather(ds, idx) - cloud.unsqueeze(2)           # (B, N, k, 3), centered
+            f = self.local_transformers[s](nbrs.reshape(B * N, self.k_for_knn, 3))
+            feats.append(f.view(B, N, self.local_feature_dim))
+
+            if s < self.n_scale - 1:                                  # coarser neighbor source
+                n_next = max(ds.shape[1] // self.ds_factor, self.k_for_knn)
+                ds, _ = sample_farthest_points(ds, K=n_next)
+        return torch.cat(feats, dim=-1)
+
     def forward(self, pc, pc_fts, x, x_fts, mask=None):
         """
         Forward pass.
@@ -242,53 +214,17 @@ class SconeOcc(nn.Module):
         n_clouds, full_seq_len = pc.shape[0], pc.shape[1]
         n_sample = x.shape[1]
 
-        # -----Point cloud local encoding (x -> pc)-----
-        # Computing down sampling factor
-        if self.n_scale > 1:
-            ds_factor = int(np.power(full_seq_len / (self.k_for_knn * 8), 1./(self.n_scale - 1)))
-            if ds_factor == 0:
-                # print("Problem: ds_factor=0 encountered. Taking ds_factor=2 as a default value.")
-                ds_factor = 2
-        else:
-            ds_factor = 1
+        geo_x = self.multiscale_geometry(x)
+        geo_pc = self.multiscale_geometry(pc)
+        corr_idx = get_knn_idx(x_fts, pc_fts, self.k_for_knn)       
+        matched_fts = knn_gather(pc_fts, corr_idx)                    
+        sim = F.cosine_similarity(x_fts.unsqueeze(2), matched_fts, dim=-1)
 
-        # kNN computation for local embedding
-        down_sampled_pc = pc
-        down_sampled_pc_fts = pc_fts
-        local_pc_transformed = []
-        
-        for n_transformer in range(self.n_scale):
-            local_transformer = self.local_transformers[n_transformer]
-            # Get kNN points in down sampled pc
-            local_pc_idx = get_knn_idx(x_fts, down_sampled_pc_fts, self.k_for_knn)
-            local_pc = knn_gather(down_sampled_pc, local_pc_idx)
+        w = torch.softmax(sim / self.tau, dim=-1).unsqueeze(-1)       
+        matched_geo = (w * knn_gather(geo_pc, corr_idx)).sum(dim=2) 
 
-            # Compute features
-            local_pc_transformed += [local_transformer(local_pc.view(-1, self.k_for_knn, 3), mask=mask)]
-
-            # Down sample pc and its features with the same indices
-            if n_transformer < self.n_scale - 1:
-                ds_seq_len = down_sampled_pc.shape[1]
-                perm = torch.randperm(ds_seq_len, device=pc.device)[:ds_seq_len // ds_factor]
-                down_sampled_pc = down_sampled_pc[:, perm]
-                down_sampled_pc_fts = down_sampled_pc_fts[:, perm]
-
-        if self.n_scale > 0:
-            local_pc_features = torch.cat(local_pc_transformed, dim=-1)
-
-        local_pc_features = local_pc_features.view(n_clouds, n_sample, self.n_scale * self.local_feature_dim)
-
-        # -----X encoding-----
-        x_features = self.x_embedding(x)
-        x_features = x_features.view(n_clouds, n_sample, self.x_embedding_dim)
-
-        # -----Occupancy prediction-----
-        res = torch.cat((local_pc_features, x_features), dim=-1)
-        res = self.non_linear1(self.linear1(res))
-        res = self.non_linear2(self.linear2(res))
-        res = self.linear3(res)
-
-        return res.view(n_clouds, n_sample, self.output_dim)
+        seg_in = torch.cat([geo_x, matched_geo, geo_x * matched_geo, sim], dim=-1)
+        return self.seg_head(seg_in) 
 
 
 def SconeOccFtsLcl(n_fts=None, **kwargs):
@@ -299,11 +235,9 @@ def SconeOccFtsLcl(n_fts=None, **kwargs):
                     n_heads=2,
                     FF=True,
                     gelu=True,
-                    n_scale=3,
+                    n_scale=4,
                     local_feature_dim=128,
                     k_for_knn=8,
                     x_dim=3,
-                    x_embedding_dim=256,
                     output_dim=1,
-                    dropout=None,
-                    offset=False)
+                    dropout=None)
