@@ -1,4 +1,4 @@
-model: SconeOccFtsDst
+model: SconeOccFtsLcl
 data_path: /home/danish/lobster/ml/data/shapenet/shapenet_partials_mixed.h5
 backbone_train: /home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationMedium_2026-10-05_16-19
 backbone_eval: /home/danish/lobster/ml/pointMLP-pytorch/pointMLP-pytorch/object_segmentation/checkpoints/segmentation/pointMLPSegmentationMedium_2026-10-05_16-19

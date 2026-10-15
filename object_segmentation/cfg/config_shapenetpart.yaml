@@ -1,6 +1,6 @@
 model: pointMLPSegmentationMedium
 
-n_inputs: 6
+n_inputs: 10
 n_classes: 50
 data_path: /home/danish/lobster/ml/data/shapenet/shapenetpart.h5
 
@@ -9,7 +9,7 @@ batch_size: 64
 test_batch_size: 64
 epochs: 250
 
-noise_std: 0.01
+noise_std: -1
 num_points: 1024
 use_sgd: false
 scheduler: step

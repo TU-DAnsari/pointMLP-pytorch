@@ -165,6 +165,11 @@ def train(args, io):
 
     n_feats = args.n_feats
 
+    io.cprint(str(model))
+
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters: {trainable_params}")
+
     train_data_pre = MixedOccupancyDataset(data_path, 
                                            split="train", 
                                            num_points=args.num_points,
@@ -218,8 +223,6 @@ def train(args, io):
                               pin_memory=True, 
                               persistent_workers=True)
     
-    io.cprint(str(model))
-
     if args.resume:
         state_dict = torch.load(f"{checkpoint_dir}/best_insiou_model.pth", weights_only=False, map_location='cpu')['model']
         state_dict = {
@@ -230,10 +233,6 @@ def train(args, io):
         print("Resuming training...")
     else:
         print("Training from scratch...")
-
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Trainable parameters: {trainable_params}")
-
 
     if args.use_sgd:
         opt = optim.SGD(model.parameters(), lr=args.lr * 100, momentum=args.momentum, weight_decay=0)

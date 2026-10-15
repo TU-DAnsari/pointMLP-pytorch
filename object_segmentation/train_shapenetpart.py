@@ -3,7 +3,7 @@ import os
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
-from util.shapenetpart_dataset import ShapeNetPartDataset
+from util.shapenetpart_dataset_inv import ShapeNetPartDataset
 import torch.nn.functional as F
 import models 
 import numpy as np
