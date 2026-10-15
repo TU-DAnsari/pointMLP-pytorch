@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import yaml
 from types import SimpleNamespace
 import argparse
+import open3d as o3d
+from .base_dataset import BaseDataSet
 
 def parse_args():
     # Step 1: get the config file path (and any CLI overrides)
@@ -105,3 +107,37 @@ def compute_class_weights(labels, n_classes, device):
     weights = 1.0 / (class_counts + 1e-6)
     weights = weights / weights.sum() * n_classes  # normalize
     return torch.tensor(weights, dtype=torch.float32).to(device)
+
+def points_to_feature_vector(points):
+    pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+    pcd.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+    )
+    pcd_center = pcd.get_center()
+    pcd.orient_normals_towards_camera_location(camera_location=pcd_center)
+
+    normals = np.asarray(pcd.normals)
+
+    feature_vector = np.concatenate([points, normals], axis=1)
+    return feature_vector
+
+def through_backbone(backbone, points, n_feats):
+    points = BaseDataSet.normlize_unit_sphere(points)
+    feature_vector = points_to_feature_vector(points)
+    points_tensor = torch.tensor(np.array([points])).float().permute(0, 2, 1)
+    features_tensor = torch.tensor(np.array([feature_vector])).float().permute(0, 2, 1)
+    
+    with torch.no_grad():
+        points_out = backbone.encoder(points_tensor, features_tensor)
+        features = backbone.seg_head.decode(points_out).permute(0, 2, 1)
+
+    n_feats = None if n_feats <= 0 else n_feats
+    return points_tensor.permute(0, 2, 1), features_tensor.permute(0, 2, 1), features[:, :, :n_feats]
+
+def through_occ(model, target_points, target_features, source_points, source_features):
+    with torch.no_grad():
+        occ_pred = model(target_points, target_features, source_points, source_features)
+        occ_pred = occ_pred.squeeze(-1)
+        occ_prob = torch.sigmoid(occ_pred)
+
+    return occ_prob
