@@ -286,10 +286,6 @@ class SconeOcc(nn.Module):
             # Get kNN points in down sampled pc
             local_idx = get_knn_idx(x_fts, down_sampled_fts, self.k_for_knn)
             local_pc = knn_gather(down_sampled_pc, local_idx)
-            if self.offset:
-                local_pc = local_pc - local_pc - local_pc.mean(dim=2, keepdim=True)
-
-            # Compute features
             local_transformed += [local_transformer(local_pc.view(-1, self.k_for_knn, 3), mask=mask)]
 
             # Down sample pc and its features with the same indices
@@ -356,4 +352,4 @@ def SconeOccSmallFts(n_fts=None, **kwargs):
                     x_embedding_dim=256,
                     output_dim=1,
                     dropout=None,
-                    offset=True)
+                    offset=False)

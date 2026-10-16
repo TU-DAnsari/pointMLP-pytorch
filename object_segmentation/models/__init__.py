@@ -8,4 +8,5 @@ from .SconeOccFts import SconeOccOGFts, SconeOccSmallFts
 from .SconeOccFtsEmbed import SconeOccSmallFtsEmbed
 from .SconeOccFtsDst import SconeOccFtsDst
 from .SconeOccFtsLcl import SconeOccFtsLcl
+from .SconeOccFtsMtch import SconeOccFtsMtch
 
